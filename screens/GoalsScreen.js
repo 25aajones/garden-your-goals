@@ -17,9 +17,8 @@ const DAYS = [
 
 function startOfWeek(date = new Date()) {
   const d = new Date(date);
-  const day = d.getDay();
   d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() - day);
+  d.setDate(d.getDate() - d.getDay());
   return d;
 }
 function weekDates(date = new Date()) {
@@ -32,21 +31,17 @@ function weekDates(date = new Date()) {
 }
 
 function Droplet({ filled }) {
-  return (
-    <View style={[styles.droplet, filled ? styles.dropletFilled : styles.dropletOutline]} />
-  );
+  return <View style={[styles.droplet, filled ? styles.dropletFilled : styles.dropletOutline]} />;
 }
 
 export default function GoalsScreen({ navigation }) {
   const { goals, selectedDateKey, setSelectedDateKey } = useGoals();
 
-  const today = new Date();
-  const todayDay = today.getDay();
-
   const selectedDate = fromKey(selectedDateKey);
-  const selectedDay = selectedDate.getDay();
-
   const week = useMemo(() => weekDates(selectedDate), [selectedDateKey]);
+
+  const today = new Date();
+  const todayKey = toKey(today);
 
   const filtered = useMemo(() => {
     return goals
@@ -64,27 +59,23 @@ export default function GoalsScreen({ navigation }) {
         </View>
       </View>
 
-      {/* Week strip */}
       <View style={styles.dayStrip}>
         {DAYS.map((d, idx) => {
           const dateObj = week[idx];
-          const dateNum = dateObj.getDate();
-          const dayValue = dateObj.getDay(); // 0..6
-          const isSelected = dayValue === selectedDay && toKey(dateObj) === selectedDateKey;
-          const isToday = dayValue === todayDay && toKey(dateObj) === toKey(today);
+          const key = toKey(dateObj);
+          const isSelected = key === selectedDateKey;
+          const isToday = key === todayKey;
 
           return (
             <Pressable
-              key={`${d.label}-${idx}`}
-              onPress={() => setSelectedDateKey(toKey(dateObj))}
-              style={[
-                styles.dayPill,
-                isSelected && styles.dayPillActive,
-                isToday && styles.dayPillTodayOutline,
-              ]}
+              key={key}
+              onPress={() => setSelectedDateKey(key)}
+              style={[styles.dayPill, isSelected && styles.dayPillActive, isToday && styles.dayPillTodayOutline]}
+              android_ripple={{ color: "#00000012", borderless: false }}
+              hitSlop={10}
             >
               <Text style={[styles.dayLabel, isSelected && styles.dayLabelActive]}>{d.label}</Text>
-              <Text style={[styles.dayNum, isSelected && styles.dayNumActive]}>{dateNum}</Text>
+              <Text style={[styles.dayNum, isSelected && styles.dayNumActive]}>{dateObj.getDate()}</Text>
             </Pressable>
           );
         })}
@@ -109,19 +100,16 @@ export default function GoalsScreen({ navigation }) {
             <Pressable
               style={styles.goalCard}
               onPress={() => navigation.navigate("Goal", { goalId: item.id })}
+              android_ripple={{ color: "#00000010" }}
+              hitSlop={8}
             >
               <View style={styles.leftIcon} />
               <View style={styles.textWrap}>
-                <Text style={styles.title} numberOfLines={1}>
-                  {item.name}
-                </Text>
-                <Text style={styles.sub} numberOfLines={1}>
-                  {subtitle}
-                </Text>
+                <Text style={styles.title} numberOfLines={1}>{item.name}</Text>
+                <Text style={styles.sub} numberOfLines={1}>{subtitle}</Text>
                 {!!item.plan?.when && (
                   <Text style={styles.micro} numberOfLines={1}>
-                    Plan: {item.plan.when}
-                    {item.plan.where ? ` • ${item.plan.where}` : ""}
+                    Plan: {item.plan.when}{item.plan.where ? ` • ${item.plan.where}` : ""}
                   </Text>
                 )}
               </View>
@@ -146,8 +134,8 @@ export default function GoalsScreen({ navigation }) {
 const styles = StyleSheet.create({
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
   headerTitle: { fontSize: 20, fontWeight: "900", color: theme.text },
-  headerIcons: { flexDirection: "row", gap: 10 },
-  headerIcon: { width: 18, height: 18, borderRadius: 6, backgroundColor: theme.surface },
+  headerIcons: { flexDirection: "row" },
+  headerIcon: { width: 18, height: 18, borderRadius: 6, backgroundColor: theme.surface, marginLeft: 10 },
 
   dayStrip: { flexDirection: "row", justifyContent: "space-between", marginBottom: 14 },
   dayPill: {
@@ -158,6 +146,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 6,
+    overflow: "hidden",
   },
   dayPillActive: { backgroundColor: theme.accent },
   dayPillTodayOutline: { borderWidth: 2, borderColor: theme.outline },
@@ -175,6 +164,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     height: 74,
     marginBottom: 12,
+    overflow: "hidden",
   },
   leftIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: theme.accent, marginRight: 12 },
   textWrap: { flex: 1, paddingRight: 8 },
@@ -183,6 +173,7 @@ const styles = StyleSheet.create({
   micro: { marginTop: 3, fontSize: 11, fontWeight: "800", color: theme.muted },
 
   rightWrap: { width: 44, alignItems: "flex-end", justifyContent: "center" },
+
   droplet: { width: 20, height: 20, borderRadius: 10, transform: [{ rotate: "20deg" }] },
   dropletOutline: { borderWidth: 2, borderColor: theme.accent, backgroundColor: "transparent" },
   dropletFilled: { backgroundColor: theme.accent },

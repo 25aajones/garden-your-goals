@@ -1,23 +1,23 @@
 // App.js
 import React from "react";
+import { Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { NavigationContainer } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { Text, View } from "react-native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { GoalsProvider } from "./components/GoalsStore";
+import { theme } from "./theme";
 
-import HomeScreen from "./screens/HomeScreen";
-import HabitsScreen from "./screens/HabitsScreen";
+import GoalsScreen from "./screens/GoalsScreen";
 import AddGoalScreen from "./screens/AddGoalScreen";
 import GoalScreen from "./screens/GoalScreen";
 
-// Simple placeholders to match your bottom tabs in Figma
 function Placeholder({ title }) {
   return (
-    <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-      <Text>{title}</Text>
+    <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: theme.bg }}>
+      <Text style={{ fontWeight: "900", color: theme.muted }}>{title}</Text>
     </View>
   );
 }
@@ -25,14 +25,10 @@ function Placeholder({ title }) {
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
-function HabitsStack() {
+function GoalsStack() {
   return (
-    <Stack.Navigator
-      screenOptions={{
-        headerShown: false,
-      }}
-    >
-      <Stack.Screen name="HabitsHome" component={HabitsScreen} />
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="GoalsHome" component={GoalsScreen} />
       <Stack.Screen name="Goal" component={GoalScreen} />
     </Stack.Navigator>
   );
@@ -48,42 +44,31 @@ function AddStack() {
 
 export default function App() {
   return (
-    <GoalsProvider>
-      <NavigationContainer>
-        <StatusBar style="dark" />
-        <Tab.Navigator
-          screenOptions={{
-            headerShown: false,
-            tabBarStyle: {
-              height: 64,
-              backgroundColor: "#b9a78f", // tan bar in Figma
-              borderTopWidth: 0,
-            },
-            tabBarActiveTintColor: "#2f2a20",
-            tabBarInactiveTintColor: "#5b5246",
-            tabBarLabelStyle: { fontSize: 10, marginBottom: 8 },
-          }}
-        >
-          <Tab.Screen
-            name="Rank"
-            children={() => <Placeholder title="Rank (Coming Soon)" />}
-          />
-          <Tab.Screen name="Habits" component={HabitsStack} />
-          <Tab.Screen
-            name="Add"
-            component={AddStack}
-            options={{ tabBarLabel: "Add" }}
-          />
-          <Tab.Screen
-            name="Calendar"
-            children={() => <Placeholder title="Calendar (Coming Soon)" />}
-          />
-          <Tab.Screen
-            name="Garden"
-            children={() => <Placeholder title="Garden (Coming Soon)" />}
-          />
-        </Tab.Navigator>
-      </NavigationContainer>
-    </GoalsProvider>
+    <SafeAreaProvider>
+      <GoalsProvider>
+        <NavigationContainer>
+          <StatusBar style="dark" />
+          <Tab.Navigator
+            screenOptions={{
+              headerShown: false,
+              tabBarStyle: {
+                height: 64,
+                backgroundColor: theme.surface,
+                borderTopWidth: 0,
+              },
+              tabBarActiveTintColor: theme.text,
+              tabBarInactiveTintColor: theme.muted,
+              tabBarLabelStyle: { fontSize: 10, marginBottom: 8, fontWeight: "800" },
+            }}
+          >
+            <Tab.Screen name="Rank" children={() => <Placeholder title="Rank (Coming Soon)" />} />
+            <Tab.Screen name="Goals" component={GoalsStack} />
+            <Tab.Screen name="Add" component={AddStack} options={{ tabBarLabel: "Add" }} />
+            <Tab.Screen name="Calendar" children={() => <Placeholder title="Calendar (Coming Soon)" />} />
+            <Tab.Screen name="Garden" children={() => <Placeholder title="Garden (Coming Soon)" />} />
+          </Tab.Navigator>
+        </NavigationContainer>
+      </GoalsProvider>
+    </SafeAreaProvider>
   );
 }
