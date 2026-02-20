@@ -13,6 +13,7 @@ import { theme } from "./theme";
 import GoalsScreen from "./screens/GoalsScreen";
 import AddGoalScreen from "./screens/AddGoalScreen";
 import GoalScreen from "./screens/GoalScreen";
+import CalendarScreen from "./screens/CalendarScreen";
 
 function Placeholder({ title }) {
   return (
@@ -64,7 +65,7 @@ export default function App() {
             <Tab.Screen name="Rank" children={() => <Placeholder title="Rank (Coming Soon)" />} />
             <Tab.Screen name="Goals" component={GoalsStack} />
             <Tab.Screen name="Add" component={AddStack} options={{ tabBarLabel: "Add" }} />
-            <Tab.Screen name="Calendar" children={() => <Placeholder title="Calendar (Coming Soon)" />} />
+            <Tab.Screen name="Calendar" component={CalendarScreen} />
             <Tab.Screen name="Garden" children={() => <Placeholder title="Garden (Coming Soon)" />} />
           </Tab.Navigator>
         </NavigationContainer>

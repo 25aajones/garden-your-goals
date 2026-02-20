@@ -406,13 +406,13 @@ export default function AddGoalScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
-  headerTitle: { fontSize: 20, fontWeight: "900", color: theme.text },
+  headerTitle: { fontSize: 20, fontWeight: "900", color: theme.title },
   headerIcons: { flexDirection: "row" },
   headerIcon: { width: 18, height: 18, borderRadius: 6, backgroundColor: theme.surface, marginLeft: 10 },
 
   card: { backgroundColor: theme.surface, borderRadius: theme.radius, padding: 16, marginBottom: 12 },
-  sectionTitle: { fontSize: 13, fontWeight: "900", color: theme.text, marginBottom: 10 },
-  label: { fontSize: 12, fontWeight: "900", color: theme.text, marginBottom: 8 },
+  sectionTitle: { fontSize: 13, fontWeight: "900", color: theme.title2, marginBottom: 10 },
+  label: { fontSize: 12, fontWeight: "900", color: theme.title2, marginBottom: 8 },
   helper: { fontSize: 12, fontWeight: "800", color: theme.muted, lineHeight: 16 },
 
   input: {
@@ -465,7 +465,7 @@ const styles = StyleSheet.create({
   smartDotActive: { backgroundColor: theme.accent },
   smartDotDone: { backgroundColor: theme.text2 },
 
-  smartTitle: { fontSize: 12, fontWeight: "900", color: theme.text },
+  smartTitle: { fontSize: 12, fontWeight: "900", color: theme.title2 },
 
   autoHint: {
     marginTop: 10,
@@ -492,5 +492,5 @@ const styles = StyleSheet.create({
   saveText: { color: theme.bg, fontWeight: "900", fontSize: 14 },
 
   cancelBtn: { marginTop: 12, height: 46, borderRadius: theme.radius, backgroundColor: theme.surface, alignItems: "center", justifyContent: "center" },
-  cancelText: { color: theme.text, fontWeight: "900", fontSize: 14 },
+  cancelText: { color: theme.title2, fontWeight: "900", fontSize: 14 },
 });

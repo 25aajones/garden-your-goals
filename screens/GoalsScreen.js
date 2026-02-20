@@ -133,7 +133,7 @@ export default function GoalsScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
-  headerTitle: { fontSize: 20, fontWeight: "900", color: theme.text },
+  headerTitle: { fontSize: 20, fontWeight: "900", color: theme.title },
   headerIcons: { flexDirection: "row" },
   headerIcon: { width: 18, height: 18, borderRadius: 6, backgroundColor: theme.surface, marginLeft: 10 },
 
@@ -151,8 +151,8 @@ const styles = StyleSheet.create({
   dayPillActive: { backgroundColor: theme.accent },
   dayPillTodayOutline: { borderWidth: 2, borderColor: theme.outline },
 
-  dayLabel: { fontSize: 10, fontWeight: "900", color: theme.text, lineHeight: 12 },
-  dayNum: { marginTop: 2, fontSize: 12, fontWeight: "900", color: theme.text, lineHeight: 14 },
+  dayLabel: { fontSize: 10, fontWeight: "900", color: theme.muted, lineHeight: 12 },
+  dayNum: { marginTop: 2, fontSize: 12, fontWeight: "900", color: theme.muted, lineHeight: 14 },
   dayLabelActive: { color: theme.bg },
   dayNumActive: { color: theme.bg },
 
@@ -178,6 +178,6 @@ const styles = StyleSheet.create({
   dropletOutline: { borderWidth: 2, borderColor: theme.accent, backgroundColor: "transparent" },
   dropletFilled: { backgroundColor: theme.accent },
 
-  empty: { textAlign: "center", color: theme.muted, fontWeight: "900" },
+  empty: { textAlign: "center", color: theme.surface, fontWeight: "900" },
   emptySub: { marginTop: 6, textAlign: "center", color: theme.muted2, fontWeight: "800" },
 });
