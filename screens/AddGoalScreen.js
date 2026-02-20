@@ -182,7 +182,7 @@ export default function AddGoalScreen({ navigation }) {
               value={name}
               onChangeText={setName}
               placeholder="New Goal"
-              placeholderTextColor={theme.muted2}
+              placeholderTextColor={theme.accent}
               style={styles.input}
             />
 
@@ -218,14 +218,14 @@ export default function AddGoalScreen({ navigation }) {
                     onChangeText={setTarget}
                     keyboardType="numeric"
                     placeholder="8"
-                    placeholderTextColor={theme.muted2}
+                    placeholderTextColor={theme.accent}
                     style={[styles.input, { flex: 1, marginRight: 10 }]}
                   />
                   <TextInput
                     value={unit}
                     onChangeText={setUnit}
                     placeholder="cups"
-                    placeholderTextColor={theme.muted2}
+                    placeholderTextColor={theme.accent}
                     style={[styles.input, { flex: 1 }]}
                   />
                 </View>
@@ -308,7 +308,7 @@ export default function AddGoalScreen({ navigation }) {
               value={stepValue}
               onChangeText={(txt) => setSmart((prev) => ({ ...prev, [step.key]: txt }))}
               placeholder="Write your answer…"
-              placeholderTextColor={theme.muted2}
+              placeholderTextColor={theme.accent}
               style={styles.textArea}
               multiline
             />
@@ -352,7 +352,7 @@ export default function AddGoalScreen({ navigation }) {
               value={whenStr}
               onChangeText={setWhenStr}
               placeholder="Morning, after class, 9:00 PM..."
-              placeholderTextColor={theme.muted2}
+              placeholderTextColor={theme.accent}
               style={styles.input}
             />
 
@@ -361,7 +361,7 @@ export default function AddGoalScreen({ navigation }) {
               value={whereStr}
               onChangeText={setWhereStr}
               placeholder="Desk, gym, library..."
-              placeholderTextColor={theme.muted2}
+              placeholderTextColor={theme.accent}
               style={styles.input}
             />
 
@@ -370,7 +370,7 @@ export default function AddGoalScreen({ navigation }) {
               value={cueStr}
               onChangeText={setCueStr}
               placeholder="After brushing teeth..."
-              placeholderTextColor={theme.muted2}
+              placeholderTextColor={theme.accent}
               style={styles.input}
             />
 
@@ -379,7 +379,7 @@ export default function AddGoalScreen({ navigation }) {
               value={rewardStr}
               onChangeText={setRewardStr}
               placeholder="Tea, 5 min break..."
-              placeholderTextColor={theme.muted2}
+              placeholderTextColor={theme.accent}
               style={styles.input}
             />
           </View>
@@ -406,13 +406,13 @@ export default function AddGoalScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
-  headerTitle: { fontSize: 20, fontWeight: "900", color: theme.title },
+  headerTitle: { fontSize: 27, fontWeight: "900", color: theme.title },
   headerIcons: { flexDirection: "row" },
   headerIcon: { width: 18, height: 18, borderRadius: 6, backgroundColor: theme.surface, marginLeft: 10 },
 
-  card: { backgroundColor: theme.surface, borderRadius: theme.radius, padding: 16, marginBottom: 12 },
-  sectionTitle: { fontSize: 13, fontWeight: "900", color: theme.title2, marginBottom: 10 },
-  label: { fontSize: 12, fontWeight: "900", color: theme.title2, marginBottom: 8 },
+  card: { backgroundColor: theme.surface, borderRadius: theme.radius, padding: 17, marginBottom: 12 },
+  sectionTitle: { fontSize: 22, fontWeight: "900", color: theme.title2, marginBottom: 15, },
+  label: { fontSize: 14, fontWeight: "900", color: theme.title2, marginBottom: 13,   textTransform: "uppercase" },
   helper: { fontSize: 12, fontWeight: "800", color: theme.muted, lineHeight: 16 },
 
   input: {
@@ -477,7 +477,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-  autoHintText: { fontWeight: "800", color: theme.muted, flex: 1, paddingRight: 10 },
+  autoHintText: { fontWeight: "800", color: theme.accent, flex: 1, paddingRight: 10 },
   autoBtn: { backgroundColor: theme.accent, borderRadius: theme.radiusSm, paddingHorizontal: 12, paddingVertical: 8 },
   autoBtnText: { color: theme.bg, fontWeight: "900" },
 
@@ -488,7 +488,7 @@ const styles = StyleSheet.create({
   warnTitle: { fontWeight: "900", color: theme.dangerText },
   warnText: { marginTop: 6, fontWeight: "800", color: theme.dangerText, lineHeight: 16 },
 
-  saveBtn: { height: 48, borderRadius: theme.radius, backgroundColor: theme.accent, alignItems: "center", justifyContent: "center" },
+  saveBtn: { height: 48, borderRadius: theme.radius, backgroundColor: theme.muted2, alignItems: "center", justifyContent: "center" },
   saveText: { color: theme.bg, fontWeight: "900", fontSize: 14 },
 
   cancelBtn: { marginTop: 12, height: 46, borderRadius: theme.radius, backgroundColor: theme.surface, alignItems: "center", justifyContent: "center" },

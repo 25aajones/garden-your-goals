@@ -102,17 +102,17 @@ export const theme = {
   title: "#17392D",
   title2: "#F9F6EE",
   // text: "#F9F6EE",
-    text: "black",
+    text: "#17392D",
   text2: "#6B5A4A",
   muted: "#F0EAD6",
   muted2: "#6B5A4A",
 
   // Accent
-  accent: "#6B5A4A",
+  accent: "#a7987d",
   outline: "#CBBFB1",
 
   // Feedback
-  dangerBg: "#F2D7D7",
+  dangerBg: "#dc9292",
   dangerText: "#5A1F1F",
 
   // Layout
