@@ -1,23 +1,118 @@
+//theme.js
+// export const theme = {
+//   // Backgrounds
+//   bg: "#efe9dd",
+//   surface: "#dccfbd",
+//   surface2: "#F0EAE1",
+//   card: "#DDE8BF",
+
+//   // Text (accessible contrast)
+//   text: "#1F1B16",
+//   text2: "#3A3128",
+//   muted: "#6A5E52",
+//   muted2: "#8B7F73",
+
+//   // Accent
+//   accent: "#6B5A4A",
+//   outline: "#CBBFB1",
+
+//   // Feedback
+//   dangerBg: "#F2D7D7",
+//   dangerText: "#5A1F1F",
+
+//   // Layout
+//   pad: 16,
+//   radius: 16,
+//   radiusSm: 12,
+//   topGap: 10, // your “little space at the top”
+// };
+
 // theme.js
+
+// DARK MODE???
+// export const theme = {
+//   // Backgrounds
+//   bg: "#2B3D34",
+//   surface: "#e2d8c8",
+//   surface2: "#F0EAE1",
+//   card: "#DDE8BF",
+
+//   // Text (accessible contrast)
+//   text: "#1F1B16",
+//   text2: "#3A3128",
+//   muted: "#6A5E52",
+//   muted2: "#8B7F73",
+
+//   // Accent
+//   accent: "#7ba177",
+//   outline: "#CBBFB1",
+
+//   // Feedback
+//   dangerBg: "#F2D7D7",
+//   dangerText: "#5A1F1F",
+
+//   // Layout
+//   pad: 16,
+//   radius: 16,
+//   radiusSm: 12,
+//   topGap: 10, // your “little space at the top”
+// };
+
+
+
+// 1 OKAY option
+// export const theme = {
+//   // Main background (outside cards)
+//   bg: "#ECE7DF",                // warm stone
+
+//   // Cards (your styles.card uses surface)
+//   surface: "#17392D",           // deep forest
+//   surface2: "#214C3A",          // input / segment layer
+//   card: "#1E4335",              // optional elevated dark layer
+
+//   // TEXT (must be light because surface is dark)
+//   text: "#F4F1EA",              // primary light text
+//   text2: "#E2DDD4",             // secondary light text
+//   muted: "#B7C2BB",             // muted but readable
+//   muted2: "#8FA39A",            // placeholders
+
+//   // Accent (strong contrast)
+//   accent: "#B14E2E",            // clay / terracotta
+//   outline: "#2C5A46",           // subtle forest border
+
+//   // Feedback (adjusted for dark surfaces)
+//   dangerBg: "#5A2A23",
+//   dangerText: "#F2D6D2",
+
+//   pad: 16,
+//   radius: 16,
+//   radiusSm: 12,
+//   topGap: 10,
+// };
+
+
 export const theme = {
   // Backgrounds
-  bg: "#F7F4EE",
-  surface: "#E7DED1",
-  surface2: "#F0EAE1",
+  bg: "#F9F6EE",
+  surface: "#215240",
+  surface2: "#F9F6EE",
   card: "#DDE8BF",
 
   // Text (accessible contrast)
-  text: "#1F1B16",
-  text2: "#3A3128",
-  muted: "#6A5E52",
-  muted2: "#8B7F73",
+  title: "#17392D",
+  title2: "#F9F6EE",
+  // text: "#F9F6EE",
+    text: "#17392D",
+  text2: "#6B5A4A",
+  muted: "#F0EAD6",
+  muted2: "#6B5A4A",
 
   // Accent
-  accent: "#6B5A4A",
+  accent: "#a7987d", 
   outline: "#CBBFB1",
 
   // Feedback
-  dangerBg: "#F2D7D7",
+  dangerBg: "#dc9292",
   dangerText: "#5A1F1F",
 
   // Layout

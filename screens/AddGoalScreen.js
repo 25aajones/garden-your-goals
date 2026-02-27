@@ -938,7 +938,7 @@ const styles = StyleSheet.create({
   btnBase: { flex: 1, height: 48, borderRadius: theme.radius, alignItems: "center", justifyContent: "center" },
   btnPrimary: { backgroundColor: theme.accent },
   btnSecondary: { backgroundColor: theme.surface },
-  btnTextBase: { fontSize: 14 },
+  btnTextBase: { fontSize: 12 },
   btnTextPrimary: { color: theme.bg, fontWeight: "800" },
   btnTextSecondary: { color: theme.text, fontWeight: "800" },
 
