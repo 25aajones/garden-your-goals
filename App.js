@@ -16,6 +16,7 @@ import WelcomeScreen from "./screens/WelcomeScreen";
 import GoalsScreen from "./screens/GoalsScreen";
 import AddGoalScreen from "./screens/AddGoalScreen";
 import GoalScreen from "./screens/GoalScreen";
+import CalendarScreen from "./screens/CalendarScreen";
 
 import RankScreen from "./screens/RankScreen";
 import GardenScreen from "./screens/GardenScreen";

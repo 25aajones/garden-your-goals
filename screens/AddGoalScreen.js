@@ -1115,10 +1115,29 @@ const styles = StyleSheet.create({
   smallToggleText: { fontSize: 12, fontWeight: "900", color: theme.muted },
   smallToggleTextActive: { color: theme.bg },
 
-  footer: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 12 },
+  inlineLink: { marginTop: 8, alignSelf: "flex-start" },
+  inlineLinkText: { fontSize: 12, fontWeight: "700", color: theme.muted, textDecorationLine: "underline" },
 
-  primaryBtn: { flex: 1, height: 50, borderRadius: theme.radius, backgroundColor: theme.accent, alignItems: "center", justifyContent: "center" },
-  primaryBtnText: { color: theme.bg, fontWeight: "900", fontSize: 15 },
+  // Errors
+  errorInline: {
+    marginTop: 10,
+    backgroundColor: theme.dangerBg,
+    borderRadius: theme.radius,
+    padding: 12,
+  },
+  errorInlineText: { color: theme.dangerText, fontSize: 12, fontWeight: "700", lineHeight: 16 },
+
+  errorBox: { backgroundColor: theme.dangerBg, borderRadius: theme.radius, padding: 12 },
+  errorTitle: { fontWeight: "800", color: theme.dangerText },
+  errorText: { marginTop: 6, fontWeight: "700", color: theme.dangerText, lineHeight: 16 },
+
+  // Buttons
+  btnBase: { flex: 1, height: 48, borderRadius: theme.radius, alignItems: "center", justifyContent: "center" },
+  btnPrimary: { backgroundColor: theme.accent },
+  btnSecondary: { backgroundColor: theme.surface },
+  btnTextBase: { fontSize: 14 },
+  btnTextPrimary: { color: theme.bg, fontWeight: "800" },
+  btnTextSecondary: { color: theme.text, fontWeight: "800" },
 
   ghostBtn: { height: 50, paddingHorizontal: 16, borderRadius: theme.radius, backgroundColor: theme.surface, alignItems: "center", justifyContent: "center" },
   ghostBtnText: { color: theme.text, fontWeight: "900", fontSize: 15 },
