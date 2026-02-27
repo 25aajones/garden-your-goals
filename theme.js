@@ -108,7 +108,7 @@ export const theme = {
   muted2: "#6B5A4A",
 
   // Accent
-  accent: "#a7987d",
+  accent: "#a7987d", 
   outline: "#CBBFB1",
 
   // Feedback

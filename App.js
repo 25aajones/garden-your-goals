@@ -57,8 +57,8 @@ export default function App() {
                 backgroundColor: theme.surface,
                 borderTopWidth: 0,
               },
-              tabBarActiveTintColor: theme.text,
-              tabBarInactiveTintColor: theme.muted,
+              tabBarActiveTintColor: theme.accent,
+              tabBarInactiveTintColor: theme.title2,
               tabBarLabelStyle: { fontSize: 10, marginBottom: 8, fontWeight: "800" },
             }}
           >

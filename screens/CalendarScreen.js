@@ -6,6 +6,24 @@ import { Dimensions } from "react-native";
 
 const DAYS = ["sun","mon","tue","wed","thu","fri","sat"];
 
+function getWeekDays(date) {
+  const startOfWeek = new Date(date);
+  startOfWeek.setDate(date.getDate() - date.getDay()); // Sunday of current week
+
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(startOfWeek);
+    d.setDate(startOfWeek.getDate() + i);
+    days.push({
+      day: d.getDate(),
+      faded: false,
+      month: d.getMonth(),
+      year: d.getFullYear(),
+    });
+  }
+  return days;
+}
+
 function getMonthDays(year, month) {
   const first = new Date(year, month, 1);
   const startDay = first.getDay();
@@ -40,13 +58,30 @@ export default function CalendarScreen() {
   const year = date.getFullYear();
   const month = date.getMonth();
 
-  const days = useMemo(() => getMonthDays(year, month), [year, month]);
+  const today = new Date();
+
+  const isCurrentMonth =
+    today.getFullYear() === year &&
+    today.getMonth() === month;
+
+  const todayDay = today.getDate();
+
+  const days = useMemo(() => {
+    if (mode === "month") {
+      return getMonthDays(year, month);
+    } else if (mode === "week") {
+      return getWeekDays(date);
+  }
+},    [mode, year, month, date]);
+
 
   const monthLabel = date.toLocaleString("default", { month: "long" });
 
   const changeMonth = (dir) => {
     setDate(new Date(year, month + dir, 1));
   };
+
+
 
   return (
     <Page>
@@ -106,15 +141,30 @@ export default function CalendarScreen() {
                 style={[
                 styles.dayBox,
                 (i+1)%7===0 && { marginRight:0 },
-                d.faded && styles.dayFaded
+                d.faded && styles.dayFaded,
+                !d.faded &&
+                isCurrentMonth &&
+                d.day === todayDay &&
+                styles.todayBox
         ]}
 >
-              <Text style={[styles.dayText, d.faded && { opacity: 0.4 }]}>
+              <Text style={[
+                styles.dayText, 
+                d.faded && { opacity: 0.4 },
+                !d.faded &&
+                isCurrentMonth &&
+                d.day === todayDay &&
+                styles.todayText
+                ]}
+>
                 {d.day}
               </Text>
             </View>
           ))}
         </View>
+
+      
+
 
         {/* DIVIDER */}
         <View style={styles.divider} />
@@ -197,6 +247,13 @@ weekPill:{
     includeFontPadding:false,
     lineHeight:16
    },
+  todayBox: {
+    backgroundColor: "#31795f"
+  },
+
+  todayText: {
+    color: "#fff"
+  },
 
   divider:{ height:1, backgroundColor:"#ddd", marginVertical:16 },
 
