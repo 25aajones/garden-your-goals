@@ -1,21 +1,26 @@
 // App.js
-import React from "react";
+import React, { useEffect } from "react";
 import { Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { NavigationContainer } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 
+import { ensureNotificationPermissions, scheduleDailyReminder } from "./utils/notifications";
 import { GoalsProvider } from "./components/GoalsStore";
 import { theme } from "./theme";
 
 import WelcomeScreen from "./screens/WelcomeScreen";
-import HomeScreen from "./screens/HomeScreen";
 import GoalsScreen from "./screens/GoalsScreen";
 import AddGoalScreen from "./screens/AddGoalScreen";
 import GoalScreen from "./screens/GoalScreen";
+
+import RankScreen from "./screens/RankScreen";
+import GardenScreen from "./screens/GardenScreen";
+import ChallengeScreen from "./screens/ChallengeScreen";
+import SettingsScreen from "./screens/SettingsScreen";
 
 function Placeholder({ title }) {
   return (
@@ -46,55 +51,60 @@ function AddStack() {
   );
 }
 
-export default function App() {
+/**
+ * ✅ GardenStack keeps Settings + Challenge "in the tab group"
+ * without being separate tabs.
+ */
+function GardenStack() {
   return (
-    <SafeAreaProvider>
-      <GoalsProvider>
-        <NavigationContainer>
-        <StatusBar style="dark" />
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="GardenHome" component={GardenScreen} />
+      <Stack.Screen name="Challenge" component={ChallengeScreen} />
+      <Stack.Screen name="Settings" component={SettingsScreen} />
+    </Stack.Navigator>
+  );
+}
 
-          <RootStack.Navigator screenOptions={{ headerShown: false }}>
-    <RootStack.Screen name="Welcome" component={WelcomeScreen} />
+/**
+ * ✅ Clean TabsNavigator component (easy to add more later)
+ */
+function TabsNavigator() {
+  const insets = useSafeAreaInsets();
 
-    <RootStack.Screen name="Tabs">
-  {() => (
+  return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarShowLabel: true,
         tabBarHideOnKeyboard: true,
 
-        // Figma-like bar (shorter, padded, clean)
         tabBarStyle: {
-          height: 64,
+          height: 64 + insets.bottom,
           paddingTop: 8,
-          paddingBottom: 10,
+          paddingBottom: Math.max(10, insets.bottom),
           backgroundColor: theme.surface,
           borderTopWidth: 0,
-          elevation: 10, // Android shadow
+          elevation: 10,
         },
 
         tabBarActiveTintColor: theme.text,
         tabBarInactiveTintColor: theme.muted,
 
-        // Figma-like label
         tabBarLabelStyle: {
           fontSize: 10,
           fontWeight: "800",
           marginTop: 2,
         },
 
-        // Icon mapping to match your Figma tabs
-        tabBarIcon: ({ color, size, focused }) => {
+        tabBarIcon: ({ color, focused }) => {
           const map = {
             Rank: focused ? "trophy" : "trophy-outline",
-            Goals: focused ? "leaf" : "leaf-outline",      // "Habits" in Figma
+            Goals: focused ? "leaf" : "leaf-outline",
             Add: focused ? "add-circle" : "add-circle-outline",
             Calendar: focused ? "calendar" : "calendar-outline",
             Garden: focused ? "flower" : "flower-outline",
           };
 
-          // Slightly larger icon like Figma
           const iconName = map[route.name] ?? "ellipse-outline";
           const iconSize = route.name === "Add" ? 28 : 22;
 
@@ -102,27 +112,40 @@ export default function App() {
         },
       })}
     >
-      <Tab.Screen name="Rank" children={() => <Placeholder title="Rank (Coming Soon)" />} />
-
-      {/* This route is named "Goals" but your Figma label says "Habits" */}
-      <Tab.Screen
-        name="Goals"
-        component={GoalsStack}
-        options={{ tabBarLabel: "Habits" }}
-      />
-
-      <Tab.Screen
-        name="Add"
-        component={AddStack}
-        options={{ tabBarLabel: "Add" }}
-      />
-
+      <Tab.Screen name="Rank" component={RankScreen} />
+      <Tab.Screen name="Goals" component={GoalsStack} options={{ tabBarLabel: "Habits" }} />
+      <Tab.Screen name="Add" component={AddStack} options={{ tabBarLabel: "Add" }} />
       <Tab.Screen name="Calendar" children={() => <Placeholder title="Calendar (Coming Soon)" />} />
-      <Tab.Screen name="Garden" children={() => <Placeholder title="Garden (Coming Soon)" />} />
+      <Tab.Screen name="Garden" component={GardenStack} />
     </Tab.Navigator>
-  )}
-</RootStack.Screen>
-  </RootStack.Navigator>
+  );
+}
+
+export default function App() {
+  // ✅ Hooks must be inside a component
+  useEffect(() => {
+    (async () => {
+      try {
+        const ok = await ensureNotificationPermissions();
+        if (ok) {
+          await scheduleDailyReminder(9, 0);
+        }
+      } catch (e) {
+        console.log("Notifications setup failed:", e);
+      }
+    })();
+  }, []);
+
+  return (
+    <SafeAreaProvider>
+      <GoalsProvider>
+        <NavigationContainer>
+          <StatusBar style="dark" />
+
+          <RootStack.Navigator screenOptions={{ headerShown: false }}>
+            <RootStack.Screen name="Welcome" component={WelcomeScreen} />
+            <RootStack.Screen name="Tabs" component={TabsNavigator} />
+          </RootStack.Navigator>
         </NavigationContainer>
       </GoalsProvider>
     </SafeAreaProvider>

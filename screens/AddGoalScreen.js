@@ -1,986 +1,1136 @@
 // screens/AddGoalScreen.js
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   View,
   Text,
   StyleSheet,
-  TextInput,
   Pressable,
+  TextInput,
   KeyboardAvoidingView,
   Platform,
   Modal,
-  Alert,
-  UIManager,
-  findNodeHandle,
-  Dimensions,
+  ScrollView,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFocusEffect } from "@react-navigation/native";
 import Page from "../components/Page";
 import { theme } from "../theme";
-import { useGoals, fromKey } from "../components/GoalsStore";
+import { useGoals, toKey } from "../components/GoalsStore";
 
-const DAYS = [
-  { label: "Sun", day: 0 },
-  { label: "Mon", day: 1 },
-  { label: "Tue", day: 2 },
-  { label: "Wed", day: 3 },
-  { label: "Thu", day: 4 },
-  { label: "Fri", day: 5 },
-  { label: "Sat", day: 6 },
+/**
+ * Goal Grower — Add Goal Wizard (non-scrolling, paged)
+ * - Keeps dot progress UI
+ * - Adapts questions based on goal type (HabitNow-like)
+ * - Multi-select categories
+ * - Checklist add/remove items
+ * - Flexible "By deadline" goals with optional benchmarks
+ * - Help/tutorial overlay that explains each page + highlights the section
+ * - Safe bottom spacing so tab bar remains readable/usable on any device
+ * - Draft restores only if < 5 minutes (handled by GoalsStore); clears after save
+ * - Resets back to first page after a goal is planted
+ */
+
+const CATEGORY_CHOICES = ["Body", "Mind", "Spirit", "Work", "Custom"];
+
+/**
+ * Types:
+ * - completion: done/not-done per day
+ * - numeric: track value per day
+ * - timer: track minutes per day
+ * - checklist: complete multiple items per day
+ * - flex: flexible progress until deadline (shows each day until finished)
+ */
+const TYPE_CARDS = [
+  { key: "completion", title: "Check-off", desc: "Mark it done for the day." },
+  { key: "numeric", title: "Number", desc: "Track a value (pages, cups, reps)." },
+  { key: "timer", title: "Timer", desc: "Track minutes of effort." },
+  { key: "checklist", title: "Checklist", desc: "Complete several items." },
+  { key: "flex", title: "By deadline", desc: "Flexible progress until a due date." },
 ];
 
-const CATEGORIES = ["Body", "Mind", "Spirit", "Work", "Custom"];
+const WHEN_SUGGEST = ["Morning", "After class", "After lunch", "Evening", "Before bed"];
+const WHERE_SUGGEST = ["Desk", "Home", "Gym", "Library", "Kitchen"];
+const CUE_SUGGEST = ["After brushing teeth", "After scripture study", "After breakfast", "After shower"];
+const REWARD_SUGGEST = ["Tea", "5-minute break", "Music", "Stretching"];
 
-const clampNum = (n, min, max) => {
-  const v = Number(n);
-  if (!Number.isFinite(v)) return min;
-  return Math.max(min, Math.min(max, v));
-};
+const DAY_LABELS = ["S", "M", "T", "W", "Th", "F", "Sa"];
 
-const mapDayShort = (d) => ["S", "M", "T", "W", "Th", "F", "Sa"][d] ?? "?";
-
-function measureRef(ref, cb) {
-  const node = findNodeHandle(ref.current);
-  if (!node) return cb(null);
-  UIManager.measureInWindow(node, (x, y, width, height) => cb({ x, y, width, height }));
+function stableStringify(obj) {
+  try {
+    return JSON.stringify(obj);
+  } catch {
+    return "";
+  }
 }
 
-function Button({ variant = "primary", label, onPress, disabled }) {
-  const isPrimary = variant === "primary";
+function uid(prefix = "i") {
+  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function endOfWeekKey() {
+  const now = new Date();
+  const d = new Date(now);
+  const day = d.getDay(); // 0..6
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + (6 - day));
+  return toKey(d);
+}
+
+function endOfMonthKey() {
+  const now = new Date();
+  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  end.setHours(0, 0, 0, 0);
+  return toKey(end);
+}
+
+function isValidDateKey(s) {
+  // YYYY-MM-DD
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const [y, m, d] = s.split("-").map(Number);
+  if (!y || !m || !d) return false;
+  const dt = new Date(y, m - 1, d);
+  return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
+}
+
+function Pill({ label, active, onPress }) {
   return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      accessibilityRole="button"
-      accessibilityState={{ disabled: !!disabled }}
-      style={({ pressed }) => [
-        styles.btnBase,
-        isPrimary ? styles.btnPrimary : styles.btnSecondary,
-        disabled && { opacity: 0.5 },
-        pressed && !disabled && { opacity: 0.9, transform: [{ scale: 0.99 }] },
-      ]}
-    >
-      <Text style={[styles.btnTextBase, isPrimary ? styles.btnTextPrimary : styles.btnTextSecondary]}>
-        {label}
-      </Text>
+    <Pressable onPress={onPress} style={[styles.pill, active && styles.pillActive]}>
+      <Text style={[styles.pillText, active && styles.pillTextActive]}>{label}</Text>
     </Pressable>
   );
 }
 
-function Chip({ label, active, onPress }) {
+function PrimaryButton({ label, onPress, disabled }) {
   return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityState={{ selected: !!active }}
-      style={({ pressed }) => [
-        styles.chip,
-        active && styles.chipActive,
-        pressed && { opacity: 0.92 },
-      ]}
-    >
-      <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
+    <Pressable onPress={onPress} disabled={disabled} style={[styles.primaryBtn, disabled && { opacity: 0.55 }]}>
+      <Text style={styles.primaryBtnText}>{label}</Text>
     </Pressable>
   );
 }
 
-function Segmented({ left, right, value, onChange }) {
+function GhostButton({ label, onPress, disabled }) {
   return (
-    <View style={styles.segmentWrap}>
-      <Pressable
-        onPress={() => onChange(left.value)}
-        style={({ pressed }) => [
-          styles.segment,
-          value === left.value && styles.segmentActive,
-          pressed && { opacity: 0.92 },
-        ]}
-      >
-        <Text style={[styles.segmentText, value === left.value && styles.segmentTextActive]}>{left.label}</Text>
-      </Pressable>
-
-      <Pressable
-        onPress={() => onChange(right.value)}
-        style={({ pressed }) => [
-          styles.segment,
-          value === right.value && styles.segmentActive,
-          pressed && { opacity: 0.92 },
-        ]}
-      >
-        <Text style={[styles.segmentText, value === right.value && styles.segmentTextActive]}>{right.label}</Text>
-      </Pressable>
-    </View>
+    <Pressable onPress={onPress} disabled={disabled} style={[styles.ghostBtn, disabled && { opacity: 0.55 }]}>
+      <Text style={styles.ghostBtnText}>{label}</Text>
+    </Pressable>
   );
 }
 
-function ProgressDots({ total, index, done }) {
+function Dot({ state }) {
   return (
-    <View style={styles.dotsRow} accessibilityRole="progressbar">
-      {Array.from({ length: total }).map((_, i) => {
-        const active = i === index;
-        const complete = !!done[i];
-        return (
-          <View
-            key={i}
-            style={[
-              styles.dot,
-              complete && styles.dotDone,
-              active && styles.dotActive,
-            ]}
-          />
-        );
-      })}
-    </View>
+    <View
+      style={[
+        styles.dot,
+        state === "active" && { backgroundColor: theme.accent, borderColor: theme.accent },
+        state === "done" && { backgroundColor: theme.text2, borderColor: theme.text2 },
+      ]}
+    />
+  );
+}
+
+function CoachMark({ visible, title, body, onClose }) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.coachOverlay}>
+        <Pressable style={styles.coachBackdrop} onPress={onClose} />
+        <View style={styles.coachCard}>
+          <Text style={styles.coachTitle}>{title}</Text>
+          <Text style={styles.coachBody}>{body}</Text>
+          <View style={{ height: 12 }} />
+          <PrimaryButton label="Got it" onPress={onClose} />
+        </View>
+      </View>
+    </Modal>
   );
 }
 
 export default function AddGoalScreen({ navigation }) {
-  const { addGoal, selectedDateKey } = useGoals();
+  const insets = useSafeAreaInsets();
+  const store = useGoals();
 
-  // Date context (defaults schedule to selected day)
-  const selectedDate = fromKey(selectedDateKey);
-  const selectedDay = selectedDate.getDay();
+  // IMPORTANT: these are expected to exist in your GoalsStore (you already have them wired)
+  const { addGoal, draft, draftLoaded, saveDraft, clearDraft } = store;
 
-  // Steps: 0 seed, 1 track, 2 schedule, 3 plan(opt), 4 why(opt), 5 review
-  const STEPS = useMemo(
-    () => [
-      {
-        key: "seed",
-        title: "Plant a goal",
-        subtitle: "Give your goal a clear name so it’s easy to recognize.",
-      },
-      {
-        key: "track",
-        title: "How will you measure growth?",
-        subtitle: "Simple checkmark or a quantity you count.",
-      },
-      {
-        key: "schedule",
-        title: "When will you water it?",
-        subtitle: "Pick the days this goal shows up.",
-      },
-      {
-        key: "plan",
-        title: "Make it easy",
-        subtitle: "Attach it to a routine (optional, but powerful).",
-        optional: true,
-      },
-      {
-        key: "why",
-        title: "Why does it matter?",
-        subtitle: "A quick reason helps on low-motivation days (optional).",
-        optional: true,
-      },
-      {
-        key: "review",
-        title: "Plant it",
-        subtitle: "Review and save. You can refine later as it grows.",
-      },
-    ],
-    []
-  );
+  // Steps (no scrolling)
+  // TYPE -> BASICS -> CONFIG -> SCHEDULE/DEADLINE -> PLAN -> REVIEW
+  const steps = useMemo(() => ["TYPE", "BASICS", "CONFIG", "SCHEDULE", "PLAN", "REVIEW"], []);
+  const totalSteps = steps.length;
 
   const [step, setStep] = useState(0);
 
-  // Form
+  // --- Core fields
+  const [kind, setKind] = useState("completion");
   const [name, setName] = useState("");
-  const [category, setCategory] = useState("Custom");
+  const [categories, setCategories] = useState(["Custom"]);
 
-  const [type, setType] = useState("completion"); // completion | quantity
+  // schedule: everyday | weekdays | custom
+  const [scheduleMode, setScheduleMode] = useState("everyday");
+  const [days, setDays] = useState([1, 2, 3, 4, 5]);
+
+  // numeric
   const [target, setTarget] = useState("1");
   const [unit, setUnit] = useState("times");
 
-  const [mode, setMode] = useState("days"); // everyday | weekdays | days
-  const [days, setDays] = useState([selectedDay]);
+  // timer
+  const [minutes, setMinutes] = useState("10");
 
+  // checklist
+  const [checkItems, setCheckItems] = useState([
+    { id: uid("c"), text: "" },
+    { id: uid("c"), text: "" },
+  ]);
+
+  // plan (routine)
   const [whenStr, setWhenStr] = useState("");
   const [whereStr, setWhereStr] = useState("");
-
+  const [cueStr, setCueStr] = useState("");
+  const [rewardStr, setRewardStr] = useState("");
   const [whyStr, setWhyStr] = useState("");
 
-  // Optional step skip toggles
-  const [skipPlan, setSkipPlan] = useState(false);
-  const [skipWhy, setSkipWhy] = useState(false);
+  // flex
+  const [flexTarget, setFlexTarget] = useState("5");
+  const [flexUnit, setFlexUnit] = useState("pages");
+  const [deadlinePreset, setDeadlinePreset] = useState("month"); // week | month | custom
+  const [customDeadline, setCustomDeadline] = useState(endOfMonthKey());
+  const [benchmarksEnabled, setBenchmarksEnabled] = useState(false);
+  const [benchmarks, setBenchmarks] = useState([]);
 
-  // Help modal
+  // help
   const [helpOpen, setHelpOpen] = useState(false);
 
-  // Tutorial coach marks
-  const [tutorialOn, setTutorialOn] = useState(false);
-  const [tutorialIndex, setTutorialIndex] = useState(0);
-  const [spot, setSpot] = useState(null);
-
-  // Highlight refs for coach marks
-  const seedRef = useRef(null);
-  const trackRef = useRef(null);
-  const scheduleRef = useRef(null);
-  const planRef = useRef(null);
-  const whyRef = useRef(null);
-  const reviewRef = useRef(null);
-
-  const tutorialSteps = useMemo(
-    () => [
-      {
-        title: "Start with a clear name",
-        body: "Short and recognizable. You’ll see it often, so make it obvious.",
-        ref: seedRef,
-        goToStep: 0,
-      },
-      {
-        title: "Choose how you’ll track it",
-        body: "Completion is yes/no. Quantity is counting something (minutes, cups, pages).",
-        ref: trackRef,
-        goToStep: 1,
-      },
-      {
-        title: "Pick realistic days",
-        body: "Consistency grows faster than intensity. Choose days you can actually do.",
-        ref: scheduleRef,
-        goToStep: 2,
-      },
-      {
-        title: "Routine anchors make goals stick",
-        body: "“After breakfast” is better than “sometime today”. Optional, but effective.",
-        ref: planRef,
-        goToStep: 3,
-      },
-      {
-        title: "A tiny ‘why’ keeps it alive",
-        body: "One sentence is enough. Optional.",
-        ref: whyRef,
-        goToStep: 4,
-      },
-      {
-        title: "Plant it",
-        body: "Review and save. You can adjust later—growth is iterative.",
-        ref: reviewRef,
-        goToStep: 5,
-      },
-    ],
-    []
-  );
-
-  const { width: W, height: H } = Dimensions.get("window");
-
-  const scheduleDays = useMemo(() => {
-    if (mode === "everyday") return [0, 1, 2, 3, 4, 5, 6];
-    if (mode === "weekdays") return [1, 2, 3, 4, 5];
-    return days.length ? days : [selectedDay];
-  }, [mode, days, selectedDay]);
+  const deadlineKey = useMemo(() => {
+    if (deadlinePreset === "week") return endOfWeekKey();
+    if (deadlinePreset === "month") return endOfMonthKey();
+    return customDeadline;
+  }, [deadlinePreset, customDeadline]);
 
   const frequencyLabel = useMemo(() => {
-    if (mode === "everyday") return "Every day";
-    if (mode === "weekdays") return "Weekdays";
-    return [...scheduleDays].sort((a, b) => a - b).map(mapDayShort).join(" ");
-  }, [mode, scheduleDays]);
+    if (kind === "flex") return "By deadline";
+    if (scheduleMode === "everyday") return "Everyday";
+    if (scheduleMode === "weekdays") return "Weekdays";
+    const map = { 0: "S", 1: "M", 2: "T", 3: "W", 4: "Th", 5: "F", 6: "Sa" };
+    return [...days].sort((a, b) => a - b).map((d) => map[d]).join("");
+  }, [kind, scheduleMode, days]);
 
-  const measurableForType = useMemo(() => {
-    if (type === "completion") return { target: 1, unit: "times" };
-    return { target: clampNum(target, 1, 9999), unit: unit.trim() || "units" };
-  }, [type, target, unit]);
+  const typeTitle = useMemo(() => {
+    const found = TYPE_CARDS.find((t) => t.key === kind);
+    return found ? found.title : "Goal";
+  }, [kind]);
+
+  const toggleCategory = (c) => {
+    setCategories((prev) => {
+      const has = prev.includes(c);
+      const next = has ? prev.filter((x) => x !== c) : [...prev, c];
+      return next.length ? next : ["Custom"];
+    });
+  };
 
   const toggleDay = (d) => {
     setDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]));
   };
 
-  // Completion map for dots
-  const done = useMemo(() => {
-    const m = {};
-    m[0] = name.trim().length >= 3;
-    m[1] = type === "completion" || (Number(target) > 0 && unit.trim().length > 0);
-    m[2] = scheduleDays.length > 0;
-    m[3] = skipPlan || whenStr.trim().length >= 2;
-    m[4] = skipWhy || whyStr.trim().length >= 4;
-    m[5] = false;
-    return m;
-  }, [name, type, target, unit, scheduleDays, skipPlan, whenStr, skipWhy, whyStr]);
+  const addChecklistItem = () => setCheckItems((prev) => [...prev, { id: uid("c"), text: "" }]);
 
-  // Step-specific error (inline, near content)
-  const stepError = useMemo(() => {
-    if (step === 0) {
-      if (name.trim().length < 3) return "Give it a short name (at least 3 characters).";
-      return "";
-    }
-    if (step === 1) {
-      if (type === "quantity" && (!(Number(target) > 0) || unit.trim().length < 1)) {
-        return "Quantity needs a number + unit (ex: 10 minutes).";
-      }
-      return "";
-    }
-    if (step === 2) {
-      if (!scheduleDays.length) return "Pick at least one day.";
-      return "";
-    }
-    if (step === 3) {
-      if (skipPlan) return "";
-      if (whenStr.trim().length < 2) return "Add a time anchor (ex: After breakfast).";
-      return "";
-    }
-    if (step === 4) {
-      if (skipWhy) return "";
-      if (whyStr.trim().length < 4) return "Add a short reason (one sentence).";
-      return "";
-    }
-    return "";
-  }, [step, name, type, target, unit, scheduleDays, skipPlan, whenStr, skipWhy, whyStr]);
-
-  const canNext = !stepError;
-
-  const goNext = () => {
-    if (!canNext) return;
-
-    // Respect skip jumps for optional steps
-    if (step === 2 && skipPlan) return setStep(4);
-    if (step === 3 && skipWhy) return setStep(5);
-
-    setStep((s) => Math.min(STEPS.length - 1, s + 1));
-  };
-
-  const goBack = () => {
-    if (step === 4 && skipPlan) return setStep(2);
-    setStep((s) => Math.max(0, s - 1));
-  };
-
-  // Help content (contextual)
-  const helpContent = useMemo(() => {
-    const k = STEPS[step]?.key;
-    if (k === "seed") {
-      return {
-        title: "Naming a goal",
-        body: "Make it short and specific. A good name fits on one line and is easy to scan.",
-      };
-    }
-    if (k === "track") {
-      return {
-        title: "Tracking options",
-        body: "Completion = checkmark. Quantity = a number you count (minutes, pages, cups).",
-      };
-    }
-    if (k === "schedule") {
-      return {
-        title: "Schedules",
-        body: "Choose days you can realistically do. Consistency grows faster than intensity.",
-      };
-    }
-    if (k === "plan") {
-      return {
-        title: "Time anchors",
-        body: "Anchors attach your goal to an existing routine: “After breakfast”, “After class”.",
-      };
-    }
-    if (k === "why") {
-      return {
-        title: "Your ‘why’",
-        body: "Optional, but helpful. One sentence keeps you consistent on hard days.",
-      };
-    }
-    return {
-      title: "Saving",
-      body: "Review your goal, then plant it. You can refine it later—growth is iterative.",
-    };
-  }, [step, STEPS]);
-
-  const contactSupport = () => {
-    setHelpOpen(false);
-    Alert.alert("Support", "Hook this up to email/chat/form in your support flow.");
-  };
-
-  // Tutorial: keep aligned with target step + measure highlight
-  useEffect(() => {
-    if (!tutorialOn) return;
-    const t = tutorialSteps[tutorialIndex];
-    if (!t) return;
-
-    if (step !== t.goToStep) setStep(t.goToStep);
-
-    const timer = setTimeout(() => measureRef(t.ref, setSpot), 120);
-    return () => clearTimeout(timer);
-  }, [tutorialOn, tutorialIndex, tutorialSteps, step]);
-
-  const startTutorial = () => {
-    setTutorialIndex(0);
-    setSpot(null);
-    setTutorialOn(true);
-  };
-
-  const endTutorial = () => {
-    setTutorialOn(false);
-    setSpot(null);
-  };
-
-  const nextTutorial = () => {
-    if (tutorialIndex >= tutorialSteps.length - 1) return endTutorial();
-    setTutorialIndex((i) => i + 1);
-  };
-
-  const smart = useMemo(() => {
-    const measurable =
-      type === "completion" ? "Complete it" : `${measurableForType.target} ${measurableForType.unit}`;
-    return {
-      specific: `I will ${name.trim()}`.trim(),
-      measurable,
-      achievable: "Start small and grow over time.",
-      relevant: (skipWhy ? "" : whyStr.trim()) || "Helps me grow.",
-      timeBound: "Ongoing",
-    };
-  }, [name, type, measurableForType, whyStr, skipWhy]);
-
-  const save = () => {
-    if (name.trim().length < 3) return;
-    if (type === "quantity" && (!(Number(target) > 0) || unit.trim().length < 1)) return;
-    if (!scheduleDays.length) return;
-    if (!skipPlan && whenStr.trim().length < 2) return;
-    if (!skipWhy && whyStr.trim().length < 4) return;
-
-    const id = addGoal({
-      name: name.trim(),
-      category,
-      type,
-      measurable: measurableForType,
-      schedule: { type: mode, days: scheduleDays },
-      frequencyLabel,
-      smart,
-      plan: { when: skipPlan ? "" : whenStr.trim(), where: whereStr.trim(), cue: "", reward: "" },
-      timeBound: { enabled: false, startDate: null, endDate: null },
+  const removeChecklistItem = (id) => {
+    setCheckItems((prev) => {
+      const next = prev.filter((x) => x.id !== id);
+      return next.length ? next : [{ id: uid("c"), text: "" }];
     });
+  };
 
+  const addBenchmark = () => {
+    setBenchmarks((prev) => [
+      ...prev,
+      {
+        id: uid("b"),
+        amount: String(Math.max(1, Number(flexTarget) || 1)),
+        dateKey: deadlineKey,
+      },
+    ]);
+  };
+
+  const removeBenchmark = (id) => setBenchmarks((prev) => prev.filter((b) => b.id !== id));
+
+  const updateBenchmark = (id, patch) => {
+    setBenchmarks((prev) => prev.map((b) => (b.id === id ? { ...b, ...patch } : b)));
+  };
+
+  const resetWizard = useCallback(() => {
+    setStep(0);
+    setKind("completion");
+    setName("");
+    setCategories(["Custom"]);
+    setScheduleMode("everyday");
+    setDays([1, 2, 3, 4, 5]);
+    setTarget("1");
+    setUnit("times");
+    setMinutes("10");
+    setCheckItems([
+      { id: uid("c"), text: "" },
+      { id: uid("c"), text: "" },
+    ]);
+    setWhenStr("");
+    setWhereStr("");
+    setCueStr("");
+    setRewardStr("");
+    setWhyStr("");
+    setFlexTarget("5");
+    setFlexUnit("pages");
+    setDeadlinePreset("month");
+    setCustomDeadline(endOfMonthKey());
+    setBenchmarksEnabled(false);
+    setBenchmarks([]);
+    setHelpOpen(false);
+  }, []);
+
+  // --- Draft restore (GoalsStore handles 5-min staleness)
+  const [restoredOnce, setRestoredOnce] = useState(false);
+  const lastSavedRef = useRef("");
+  const saveTimerRef = useRef(null);
+
+  useEffect(() => {
+    if (draftLoaded === false) return;
+    if (restoredOnce) return;
+
+    if (!draft?.data) {
+      setRestoredOnce(true);
+      return;
+    }
+
+    const d = draft.data;
+
+    setStep(d.step ?? 0);
+    setKind(d.kind ?? "completion");
+    setName(d.name ?? "");
+    setCategories(d.categories ?? (d.category ? [d.category] : ["Custom"]));
+
+    setScheduleMode(d.scheduleMode ?? "everyday");
+    setDays(d.days ?? [1, 2, 3, 4, 5]);
+
+    setTarget(d.target ?? "1");
+    setUnit(d.unit ?? "times");
+
+    setMinutes(d.minutes ?? "10");
+
+    setCheckItems(
+      Array.isArray(d.checkItems) && d.checkItems.length
+        ? d.checkItems
+        : [
+            { id: uid("c"), text: "" },
+            { id: uid("c"), text: "" },
+          ]
+    );
+
+    setWhenStr(d.whenStr ?? "");
+    setWhereStr(d.whereStr ?? "");
+    setCueStr(d.cueStr ?? "");
+    setRewardStr(d.rewardStr ?? "");
+    setWhyStr(d.whyStr ?? "");
+
+    setFlexTarget(d.flexTarget ?? "5");
+    setFlexUnit(d.flexUnit ?? "pages");
+    setDeadlinePreset(d.deadlinePreset ?? "month");
+    setCustomDeadline(d.customDeadline ?? endOfMonthKey());
+
+    setBenchmarksEnabled(!!d.benchmarksEnabled);
+    setBenchmarks(Array.isArray(d.benchmarks) ? d.benchmarks : []);
+
+    setRestoredOnce(true);
+  }, [draftLoaded, draft, restoredOnce]);
+
+  const draftPayload = useMemo(
+    () => ({
+      step,
+      kind,
+      name,
+      categories,
+      scheduleMode,
+      days,
+      target,
+      unit,
+      minutes,
+      checkItems,
+      whenStr,
+      whereStr,
+      cueStr,
+      rewardStr,
+      whyStr,
+      flexTarget,
+      flexUnit,
+      deadlinePreset,
+      customDeadline,
+      benchmarksEnabled,
+      benchmarks,
+    }),
+    [
+      step,
+      kind,
+      name,
+      categories,
+      scheduleMode,
+      days,
+      target,
+      unit,
+      minutes,
+      checkItems,
+      whenStr,
+      whereStr,
+      cueStr,
+      rewardStr,
+      whyStr,
+      flexTarget,
+      flexUnit,
+      deadlinePreset,
+      customDeadline,
+      benchmarksEnabled,
+      benchmarks,
+    ]
+  );
+
+  useEffect(() => {
+    if (draftLoaded === false) return;
+    if (!restoredOnce) return;
+    if (!saveDraft) return;
+
+    const str = stableStringify(draftPayload);
+    if (str === lastSavedRef.current) return;
+
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+
+    saveTimerRef.current = setTimeout(() => {
+      lastSavedRef.current = str;
+      saveDraft(draftPayload);
+    }, 300);
+
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, [draftPayload, draftLoaded, restoredOnce, saveDraft]);
+
+  // When you return to this tab after planting, keep it clean
+  const justPlantedRef = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      if (justPlantedRef.current) {
+        justPlantedRef.current = false;
+        resetWizard();
+      }
+      return () => {};
+    }, [resetWizard])
+  );
+
+  // --- Step validation
+  const stepValid = useMemo(() => {
+    if (step === 0) return true;
+
+    if (step === 1) {
+      if (name.trim().length < 2) return false;
+      if (!categories.length) return false;
+      return true;
+    }
+
+    if (step === 2) {
+      if (kind === "numeric") return Number(target) > 0 && unit.trim().length >= 1;
+      if (kind === "timer") return Number(minutes) > 0;
+      if (kind === "checklist") return checkItems.some((x) => x.text.trim().length >= 2);
+      if (kind === "flex") return Number(flexTarget) > 0 && flexUnit.trim().length >= 1;
+      return true;
+    }
+
+    if (step === 3) {
+      if (kind === "flex") {
+        if (!isValidDateKey(deadlineKey)) return false;
+        if (benchmarksEnabled) {
+          for (const b of benchmarks) {
+            if (!(Number(b.amount) > 0)) return false;
+            if (!isValidDateKey(b.dateKey)) return false;
+          }
+        }
+        return true;
+      }
+      if (scheduleMode === "custom") return days.length >= 1;
+      return true;
+    }
+
+    return true;
+  }, [
+    step,
+    kind,
+    name,
+    categories,
+    target,
+    unit,
+    minutes,
+    checkItems,
+    flexTarget,
+    flexUnit,
+    deadlineKey,
+    scheduleMode,
+    days,
+    benchmarksEnabled,
+    benchmarks,
+  ]);
+
+  const dots = useMemo(() => {
+    return Array.from({ length: totalSteps }, (_, i) => {
+      const state = i < step ? "done" : i === step ? "active" : "todo";
+      return <Dot key={i} state={state} />;
+    });
+  }, [totalSteps, step]);
+
+  const helpCopy = useMemo(() => {
+    const common = "Tip: You can always edit later.";
+    if (step === 0) return { title: "Choose a goal type", body: "Pick how you want to track it.\n\n" + common };
+    if (step === 1) return { title: "Name + categories", body: "Short + clear.\n\n" + common };
+    if (step === 2) return { title: "Set the target", body: "Define what “done” means.\n\n" + common };
+    if (step === 3)
+      return {
+        title: kind === "flex" ? "Deadline + benchmarks" : "Schedule",
+        body:
+          (kind === "flex"
+            ? "Deadline goals show daily until finished.\n\n"
+            : "Choose the days it should appear.\n\n") + common,
+      };
+    if (step === 4) return { title: "Add a plan", body: "Optional structure helps.\n\n" + common };
+    return { title: "Review + plant", body: "You’re ready.\n\n" + common };
+  }, [step, kind]);
+
+  const saveGoal = async () => {
+    const category = categories[0] || "Custom";
+    const base = {
+      name: name.trim() || "New Goal",
+      category,
+      categories,
+      kind,
+      frequencyLabel,
+      plan: {
+        when: whenStr.trim(),
+        where: whereStr.trim(),
+        cue: cueStr.trim(),
+        reward: rewardStr.trim(),
+        why: whyStr.trim(),
+      },
+    };
+
+    let payload = base;
+
+    if (kind === "completion") {
+      payload = { ...base, schedule: { mode: scheduleMode, days } };
+    } else if (kind === "numeric") {
+      payload = {
+        ...base,
+        schedule: { mode: scheduleMode, days },
+        measurable: { target: Number(target), unit: unit.trim() },
+      };
+    } else if (kind === "timer") {
+      payload = {
+        ...base,
+        schedule: { mode: scheduleMode, days },
+        timer: { targetSeconds: Math.round(Number(minutes) * 60) },
+      };
+    } else if (kind === "checklist") {
+      const cleanItems = checkItems
+        .filter((x) => x.text.trim().length)
+        .map((x, idx) => ({ id: x.id || uid(`c${idx}`), text: x.text.trim() }));
+      payload = { ...base, schedule: { mode: scheduleMode, days }, checklist: { items: cleanItems } };
+    } else if (kind === "flex") {
+      const cleanBenchmarks = (benchmarksEnabled ? benchmarks : [])
+        .filter((b) => Number(b.amount) > 0 && isValidDateKey(b.dateKey))
+        .map((b) => ({ id: b.id || uid("b"), amount: Number(b.amount), dateKey: b.dateKey }));
+      payload = {
+        ...base,
+        schedule: { mode: "floating" },
+        flex: {
+          target: Number(flexTarget),
+          unit: flexUnit.trim(),
+          deadlineKey,
+          warnDays: [7, 3, 1],
+          benchmarks: cleanBenchmarks,
+        },
+      };
+    }
+
+    const id = addGoal(payload);
+    if (clearDraft) await clearDraft();
+    justPlantedRef.current = true;
     navigation.navigate("Goals", { screen: "Goal", params: { goalId: id } });
   };
 
-  const isLast = step === STEPS.length - 1;
+  const goNext = () => setStep((s) => Math.min(totalSteps - 1, s + 1));
+  const goPrev = () => setStep((s) => Math.max(0, s - 1));
+  const showSkip = step === 4;
+
+  const bottomPad = Math.max(12, insets.bottom + 8);
 
   return (
     <Page>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         {/* Header */}
-        <View style={styles.headerRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.hTitle}>{STEPS[step].title}</Text>
-            <Text style={styles.hSub}>{STEPS[step].subtitle}</Text>
+        <View style={styles.header}>
+          <Pressable onPress={() => navigation.goBack()} style={styles.headerBtn}>
+            <Text style={styles.headerBtnText}>Cancel</Text>
+          </Pressable>
+
+          <View style={{ alignItems: "center" }}>
+            <Text style={styles.headerTitle}>Plant a Goal</Text>
+            <Text style={styles.headerSub}>{typeTitle}</Text>
           </View>
 
-          <Pressable style={styles.helpBtn} onPress={() => setHelpOpen(true)}>
-            <Text style={styles.helpBtnText}>Help</Text>
+          <Pressable onPress={() => setHelpOpen(true)} style={styles.headerBtn}>
+            <Text style={styles.headerBtnText}>Help</Text>
           </Pressable>
         </View>
 
-        <ProgressDots total={STEPS.length} index={step} done={done} />
+        {/* Dots */}
+        <View style={styles.dotsRow}>{dots}</View>
 
-        {/* Fixed content area (no scroll) */}
-        <View style={styles.contentArea}>
-          {/* STEP 0 */}
-          {step === 0 && (
-            <View ref={seedRef} collapsable={false} style={styles.card}>
-              <Text style={styles.sectionLabel}>Goal name</Text>
-              <Text style={styles.sectionHelper}>Short and clear. You’ll see it often.</Text>
-              <TextInput
-                value={name}
-                onChangeText={setName}
-                placeholder="Example: Read"
-                placeholderTextColor={theme.muted2}
-                style={styles.input}
-              />
+        {/* Content */}
+        <View style={styles.content}>
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={{ paddingBottom: 12 }}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+          >
+            <View style={styles.card}>
+              {/* STEP 0 — TYPE */}
+              {step === 0 && (
+                <View style={styles.stepBlock}>
+                  <Text style={styles.title}>Choose what you’re growing</Text>
+                  <Text style={styles.helper}>Pick one — the next pages adapt automatically.</Text>
 
-              <View style={styles.gap16} />
-
-              <Text style={styles.sectionLabel}>Category</Text>
-              <Text style={styles.sectionHelper}>Optional organization for your garden.</Text>
-
-              <View style={styles.chipWrap}>
-                {CATEGORIES.map((c) => (
-                  <Chip key={c} label={c} active={category === c} onPress={() => setCategory(c)} />
-                ))}
-              </View>
-            </View>
-          )}
-
-          {/* STEP 1 */}
-          {step === 1 && (
-            <View ref={trackRef} collapsable={false} style={styles.card}>
-              <Text style={styles.sectionLabel}>Tracking</Text>
-              <Text style={styles.sectionHelper}>Pick what “progress” looks like.</Text>
-
-              <Segmented
-                left={{ label: "Checkmark", value: "completion" }}
-                right={{ label: "Quantity", value: "quantity" }}
-                value={type}
-                onChange={setType}
-              />
-
-              {type === "quantity" && (
-                <>
-                  <View style={styles.gap16} />
-                  <Text style={styles.sectionLabel}>Target</Text>
-                  <Text style={styles.sectionHelper}>Example: 10 minutes, 8 cups, 3 pages.</Text>
-
-                  <View style={styles.row}>
-                    <TextInput
-                      value={target}
-                      onChangeText={setTarget}
-                      keyboardType="numeric"
-                      placeholder="10"
-                      placeholderTextColor={theme.muted2}
-                      style={[styles.input, { flex: 1, marginRight: 10 }]}
-                    />
-                    <TextInput
-                      value={unit}
-                      onChangeText={setUnit}
-                      placeholder="minutes"
-                      placeholderTextColor={theme.muted2}
-                      style={[styles.input, { flex: 1 }]}
-                    />
-                  </View>
-                </>
-              )}
-
-              <View style={styles.previewRow}>
-                <Text style={styles.previewLabel}>Preview</Text>
-                <Text style={styles.previewValue}>
-                  {type === "completion" ? "Checkmark" : `${measurableForType.target} ${measurableForType.unit}`}
-                </Text>
-              </View>
-            </View>
-          )}
-
-          {/* STEP 2 */}
-          {step === 2 && (
-            <View ref={scheduleRef} collapsable={false} style={styles.card}>
-              <Text style={styles.sectionLabel}>Schedule</Text>
-              <Text style={styles.sectionHelper}>Choose days you can realistically do.</Text>
-
-              <View style={styles.row}>
-                <Chip label="Every day" active={mode === "everyday"} onPress={() => setMode("everyday")} />
-                <Chip label="Weekdays" active={mode === "weekdays"} onPress={() => setMode("weekdays")} />
-                <Chip label="Custom" active={mode === "days"} onPress={() => setMode("days")} />
-              </View>
-
-              {mode === "days" && (
-                <>
-                  <View style={styles.gap12} />
-                  <Text style={styles.sectionLabel}>Pick days</Text>
-
-                  <View style={styles.daysGrid}>
-                    {DAYS.map((d) => {
-                      const active = days.includes(d.day);
+                  <View style={styles.typeGrid}>
+                    {TYPE_CARDS.map((t) => {
+                      const active = kind === t.key;
                       return (
                         <Pressable
-                          key={d.label}
-                          onPress={() => toggleDay(d.day)}
-                          style={({ pressed }) => [
-                            styles.dayPill,
-                            active && styles.dayPillActive,
-                            pressed && { opacity: 0.92 },
-                          ]}
+                          key={t.key}
+                          onPress={() => setKind(t.key)}
+                          style={[styles.typeCard, active && styles.typeCardActive]}
                         >
-                          <Text style={[styles.dayText, active && styles.dayTextActive]}>{d.label}</Text>
+                          <Text style={[styles.typeTitle, active && styles.typeTitleActive]}>{t.title}</Text>
+                          <Text style={[styles.typeDesc, active && styles.typeDescActive]}>{t.desc}</Text>
                         </Pressable>
                       );
                     })}
                   </View>
-                </>
+                </View>
               )}
 
-              <View style={styles.previewRow}>
-                <Text style={styles.previewLabel}>Preview</Text>
-                <Text style={styles.previewValue}>{frequencyLabel}</Text>
-              </View>
+              {/* STEP 1 — BASICS */}
+              {step === 1 && (
+                <View style={styles.stepBlock}>
+                  <Text style={styles.title}>Name your seed</Text>
+                  <Text style={styles.helper}>Short, clear, and motivating.</Text>
 
-              <View style={styles.gap12} />
+                  <Text style={styles.label}>Goal name</Text>
+                  <TextInput
+                    value={name}
+                    onChangeText={setName}
+                    placeholder="Read 5 pages"
+                    placeholderTextColor={theme.muted2}
+                    style={styles.input}
+                  />
 
-              <View style={styles.skipRow}>
-                <Pressable
-                  onPress={() => setSkipPlan((v) => !v)}
-                  style={[styles.skipToggle, skipPlan && styles.skipToggleOn]}
-                >
-                  <Text style={[styles.skipText, skipPlan && styles.skipTextOn]}>
-                    {skipPlan ? "Plan skipped" : "Skip plan step"}
+                  <Text style={[styles.label, { marginTop: 14 }]}>Categories (choose any)</Text>
+                  <Text style={styles.helperTiny}>Multi-select helps filtering + stats later.</Text>
+
+                  <View style={styles.pillRow}>
+                    {CATEGORY_CHOICES.map((c) => (
+                      <Pill key={c} label={c} active={categories.includes(c)} onPress={() => toggleCategory(c)} />
+                    ))}
+                  </View>
+                </View>
+              )}
+
+              {/* STEP 2 — CONFIG */}
+              {step === 2 && (
+                <View style={styles.stepBlock}>
+                  {kind === "completion" && (
+                    <>
+                      <Text style={styles.title}>Check-off style</Text>
+                      <Text style={styles.helper}>You’ll tap a checkmark to complete today.</Text>
+                    </>
+                  )}
+
+                  {kind === "numeric" && (
+                    <>
+                      <Text style={styles.title}>Set a daily target</Text>
+                      <Text style={styles.helper}>What number counts as “done”?</Text>
+
+                      <View style={styles.twoCol}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.label}>Target</Text>
+                          <TextInput
+                            value={target}
+                            onChangeText={setTarget}
+                            keyboardType="numeric"
+                            placeholder="5"
+                            placeholderTextColor={theme.muted2}
+                            style={styles.input}
+                          />
+                        </View>
+
+                        <View style={{ width: 12 }} />
+
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.label}>Unit</Text>
+                          <TextInput
+                            value={unit}
+                            onChangeText={setUnit}
+                            placeholder="pages"
+                            placeholderTextColor={theme.muted2}
+                            style={styles.input}
+                          />
+                        </View>
+                      </View>
+                    </>
+                  )}
+
+                  {kind === "timer" && (
+                    <>
+                      <Text style={styles.title}>Set a time goal</Text>
+                      <Text style={styles.helper}>How many minutes should count as done?</Text>
+
+                      <Text style={styles.label}>Minutes</Text>
+                      <TextInput
+                        value={minutes}
+                        onChangeText={setMinutes}
+                        keyboardType="numeric"
+                        placeholder="10"
+                        placeholderTextColor={theme.muted2}
+                        style={styles.input}
+                      />
+                    </>
+                  )}
+
+                  {kind === "checklist" && (
+                    <>
+                      <Text style={styles.title}>Checklist items</Text>
+                      <Text style={styles.helper}>Add or remove items — keep it realistic.</Text>
+
+                      {checkItems.slice(0, 8).map((it, idx) => (
+                        <View key={it.id} style={{ marginTop: idx === 0 ? 12 : 10 }}>
+                          <View style={styles.rowBetween}>
+                            <Text style={styles.label}>Item {idx + 1}</Text>
+
+                            <Pressable onPress={() => removeChecklistItem(it.id)} style={styles.smallBtn}>
+                              <Text style={styles.smallBtnText}>Remove</Text>
+                            </Pressable>
+                          </View>
+
+                          <TextInput
+                            value={it.text}
+                            onChangeText={(txt) =>
+                              setCheckItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, text: txt } : x)))
+                            }
+                            placeholder="Example: Stretch"
+                            placeholderTextColor={theme.muted2}
+                            style={styles.input}
+                          />
+                        </View>
+                      ))}
+
+                      <View style={{ marginTop: 12 }}>
+                        <GhostButton label="+ Add checklist item" onPress={addChecklistItem} />
+                      </View>
+                    </>
+                  )}
+
+                  {kind === "flex" && (
+                    <>
+                      <Text style={styles.title}>Flexible progress</Text>
+                      <Text style={styles.helper}>Shows daily until finished.</Text>
+
+                      <View style={styles.twoCol}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.label}>Total target</Text>
+                          <TextInput
+                            value={flexTarget}
+                            onChangeText={setFlexTarget}
+                            keyboardType="numeric"
+                            placeholder="30"
+                            placeholderTextColor={theme.muted2}
+                            style={styles.input}
+                          />
+                        </View>
+
+                        <View style={{ width: 12 }} />
+
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.label}>Unit</Text>
+                          <TextInput
+                            value={flexUnit}
+                            onChangeText={setFlexUnit}
+                            placeholder="pages"
+                            placeholderTextColor={theme.muted2}
+                            style={styles.input}
+                          />
+                        </View>
+                      </View>
+                    </>
+                  )}
+                </View>
+              )}
+
+              {/* STEP 3 — SCHEDULE / DEADLINE */}
+              {step === 3 && (
+                <View style={styles.stepBlock}>
+                  {kind === "flex" ? (
+                    <>
+                      <Text style={styles.title}>Choose a deadline</Text>
+                      <Text style={styles.helper}>We’ll keep it visible each day until it’s complete.</Text>
+
+                      <View style={styles.pillRow}>
+                        <Pill label="End of week" active={deadlinePreset === "week"} onPress={() => setDeadlinePreset("week")} />
+                        <Pill label="End of month" active={deadlinePreset === "month"} onPress={() => setDeadlinePreset("month")} />
+                        <Pill label="Custom" active={deadlinePreset === "custom"} onPress={() => setDeadlinePreset("custom")} />
+                      </View>
+
+                      {deadlinePreset === "custom" && (
+                        <>
+                          <Text style={[styles.helperTiny, { marginTop: 10 }]}>Date (YYYY-MM-DD)</Text>
+                          <TextInput
+                            value={customDeadline}
+                            onChangeText={setCustomDeadline}
+                            placeholder="2026-03-28"
+                            placeholderTextColor={theme.muted2}
+                            style={styles.input}
+                          />
+                          {!isValidDateKey(customDeadline) && <Text style={styles.warnText}>Enter a valid date like 2026-03-28</Text>}
+                        </>
+                      )}
+
+                      <View style={{ marginTop: 14 }}>
+                        <View style={styles.rowBetween}>
+                          <Text style={styles.label}>Benchmarks (optional)</Text>
+                          <Pressable
+                            onPress={() => setBenchmarksEnabled((v) => !v)}
+                            style={[styles.smallToggle, benchmarksEnabled && styles.smallToggleActive]}
+                          >
+                            <Text style={[styles.smallToggleText, benchmarksEnabled && styles.smallToggleTextActive]}>
+                              {benchmarksEnabled ? "On" : "Off"}
+                            </Text>
+                          </Pressable>
+                        </View>
+
+                        {benchmarksEnabled && (
+                          <>
+                            {benchmarks.map((b, idx) => (
+                              <View key={b.id} style={{ marginTop: 10 }}>
+                                <View style={styles.rowBetween}>
+                                  <Text style={styles.helperTiny}>Benchmark {idx + 1}</Text>
+                                  <Pressable onPress={() => removeBenchmark(b.id)} style={styles.smallBtn}>
+                                    <Text style={styles.smallBtnText}>Remove</Text>
+                                  </Pressable>
+                                </View>
+
+                                <View style={styles.twoCol}>
+                                  <View style={{ flex: 1 }}>
+                                    <Text style={styles.label}>Amount</Text>
+                                    <TextInput
+                                      value={String(b.amount ?? "")}
+                                      onChangeText={(txt) => updateBenchmark(b.id, { amount: txt })}
+                                      keyboardType="numeric"
+                                      placeholder="10"
+                                      placeholderTextColor={theme.muted2}
+                                      style={styles.input}
+                                    />
+                                  </View>
+
+                                  <View style={{ width: 12 }} />
+
+                                  <View style={{ flex: 1 }}>
+                                    <Text style={styles.label}>Date</Text>
+                                    <TextInput
+                                      value={String(b.dateKey ?? "")}
+                                      onChangeText={(txt) => updateBenchmark(b.id, { dateKey: txt })}
+                                      placeholder="2026-03-10"
+                                      placeholderTextColor={theme.muted2}
+                                      style={styles.input}
+                                    />
+                                  </View>
+                                </View>
+
+                                {(!isValidDateKey(b.dateKey) || !(Number(b.amount) > 0)) && (
+                                  <Text style={styles.warnText}>Benchmark needs a valid date + amount.</Text>
+                                )}
+                              </View>
+                            ))}
+
+                            <View style={{ marginTop: 12 }}>
+                              <GhostButton label="+ Add benchmark" onPress={addBenchmark} />
+                            </View>
+                          </>
+                        )}
+                      </View>
+                    </>
+                  ) : (
+                    <>
+                      <Text style={styles.title}>When should it appear?</Text>
+                      <Text style={styles.helper}>Pick the days it should show up.</Text>
+
+                      <View style={styles.pillRow}>
+                        <Pill label="Everyday" active={scheduleMode === "everyday"} onPress={() => setScheduleMode("everyday")} />
+                        <Pill label="Weekdays" active={scheduleMode === "weekdays"} onPress={() => setScheduleMode("weekdays")} />
+                        <Pill label="Custom" active={scheduleMode === "custom"} onPress={() => setScheduleMode("custom")} />
+                      </View>
+
+                      {scheduleMode === "custom" && (
+                        <View style={{ marginTop: 12 }}>
+                          <Text style={styles.label}>Days</Text>
+                          <View style={styles.daysRow}>
+                            {DAY_LABELS.map((lbl, idx) => (
+                              <Pill key={lbl} label={lbl} active={days.includes(idx)} onPress={() => toggleDay(idx)} />
+                            ))}
+                          </View>
+                        </View>
+                      )}
+                    </>
+                  )}
+                </View>
+              )}
+
+              {/* STEP 4 — PLAN (optional / skippable) */}
+              {step === 4 && (
+                <View style={styles.stepBlock}>
+                  <Text style={styles.title}>Add sunlight (optional)</Text>
+                  <Text style={styles.helper}>A tiny plan makes this easier — you can skip.</Text>
+
+                  <Text style={styles.label}>When</Text>
+                  <TextInput
+                    value={whenStr}
+                    onChangeText={setWhenStr}
+                    placeholder="Morning"
+                    placeholderTextColor={theme.muted2}
+                    style={styles.input}
+                  />
+
+                  <Text style={styles.label}>Where</Text>
+                  <TextInput
+                    value={whereStr}
+                    onChangeText={setWhereStr}
+                    placeholder="Desk"
+                    placeholderTextColor={theme.muted2}
+                    style={styles.input}
+                  />
+
+                  <Text style={styles.label}>Cue (optional)</Text>
+                  <TextInput
+                    value={cueStr}
+                    onChangeText={setCueStr}
+                    placeholder="After brushing teeth…"
+                    placeholderTextColor={theme.muted2}
+                    style={styles.input}
+                  />
+
+                  <Text style={styles.label}>Reward (optional)</Text>
+                  <TextInput
+                    value={rewardStr}
+                    onChangeText={setRewardStr}
+                    placeholder="Tea, 5-minute break…"
+                    placeholderTextColor={theme.muted2}
+                    style={styles.input}
+                  />
+
+                  <Text style={styles.label}>Why this matters (optional)</Text>
+                  <TextInput
+                    value={whyStr}
+                    onChangeText={setWhyStr}
+                    placeholder="Because I want to…"
+                    placeholderTextColor={theme.muted2}
+                    style={[styles.input, { height: 80 }]}
+                    multiline
+                  />
+                </View>
+              )}
+
+              {/* STEP 5 — REVIEW */}
+              {step === 5 && (
+                <View style={styles.stepBlock}>
+                  <Text style={styles.title}>Review</Text>
+                  <Text style={styles.helper}>Everything looks good? Plant it.</Text>
+
+                  <View style={{ height: 10 }} />
+
+                  <Text style={styles.reviewLine}>
+                    <Text style={styles.reviewLabel}>Goal:</Text> {name || "—"}
                   </Text>
-                </Pressable>
 
-                <Pressable
-                  onPress={() => setSkipWhy((v) => !v)}
-                  style={[styles.skipToggle, skipWhy && styles.skipToggleOn]}
-                >
-                  <Text style={[styles.skipText, skipWhy && styles.skipTextOn]}>
-                    {skipWhy ? "Why skipped" : "Skip why step"}
+                  <Text style={styles.reviewLine}>
+                    <Text style={styles.reviewLabel}>Type:</Text> {typeTitle}
                   </Text>
-                </Pressable>
-              </View>
-            </View>
-          )}
 
-          {/* STEP 3 */}
-          {step === 3 && (
-            <View ref={planRef} collapsable={false} style={styles.card}>
-              <Text style={styles.sectionLabel}>Time anchor</Text>
-              <Text style={styles.sectionHelper}>
-                Example: After breakfast / After class / Before bed
-              </Text>
+                  <Text style={styles.reviewLine}>
+                    <Text style={styles.reviewLabel}>Category:</Text> {categories?.length ? categories.join(", ") : "—"}
+                  </Text>
 
-              <TextInput
-                value={whenStr}
-                onChangeText={setWhenStr}
-                placeholder="When will you do it?"
-                placeholderTextColor={theme.muted2}
-                style={styles.input}
-              />
+                  <Text style={styles.reviewLine}>
+                    <Text style={styles.reviewLabel}>Schedule:</Text> {frequencyLabel}
+                  </Text>
 
-              <View style={styles.gap16} />
+                  {kind === "numeric" ? (
+                    <Text style={styles.reviewLine}>
+                      <Text style={styles.reviewLabel}>Target:</Text> {target} {unit}
+                    </Text>
+                  ) : null}
 
-              <Text style={styles.sectionLabel}>Place (optional)</Text>
-              <TextInput
-                value={whereStr}
-                onChangeText={setWhereStr}
-                placeholder="Desk, gym, library…"
-                placeholderTextColor={theme.muted2}
-                style={styles.input}
-              />
+                  {kind === "timer" ? (
+                    <Text style={styles.reviewLine}>
+                      <Text style={styles.reviewLabel}>Time:</Text> {minutes} min
+                    </Text>
+                  ) : null}
 
-              <View style={styles.gap12} />
-              <Pressable onPress={() => { setSkipPlan(true); setStep(4); }} style={styles.inlineLink}>
-                <Text style={styles.inlineLinkText}>Skip this step</Text>
-              </Pressable>
-            </View>
-          )}
+                  {kind === "checklist" ? (
+                    <View style={{ marginTop: 10 }}>
+                      <Text style={styles.reviewLabel}>Checklist:</Text>
+                      {checkItems
+                        .filter((x) => x.text.trim().length)
+                        .slice(0, 8)
+                        .map((x) => (
+                          <Text key={x.id} style={styles.reviewBullet}>
+                            • {x.text.trim()}
+                          </Text>
+                        ))}
+                    </View>
+                  ) : null}
 
-          {/* STEP 4 */}
-          {step === 4 && (
-            <View ref={whyRef} collapsable={false} style={styles.card}>
-              <Text style={styles.sectionLabel}>Your reason</Text>
-              <Text style={styles.sectionHelper}>Optional. One sentence is enough.</Text>
+                  {kind === "flex" ? (
+                    <Text style={styles.reviewLine}>
+                      <Text style={styles.reviewLabel}>Deadline:</Text> {deadlineKey}
+                    </Text>
+                  ) : null}
 
-              <TextInput
-                value={whyStr}
-                onChangeText={setWhyStr}
-                placeholder="Example: I want more energy and focus."
-                placeholderTextColor={theme.muted2}
-                style={[styles.input, styles.textArea]}
-                multiline
-              />
-
-              <View style={styles.gap12} />
-              <Pressable onPress={() => { setSkipWhy(true); setStep(5); }} style={styles.inlineLink}>
-                <Text style={styles.inlineLinkText}>Skip this step</Text>
-              </Pressable>
-            </View>
-          )}
-
-          {/* STEP 5 */}
-          {step === 5 && (
-            <View ref={reviewRef} collapsable={false} style={styles.card}>
-              <Text style={styles.sectionLabel}>Review</Text>
-
-              <View style={styles.reviewRow}>
-                <Text style={styles.reviewLabel}>Name</Text>
-                <Text style={styles.reviewValue}>{name.trim() || "—"}</Text>
-              </View>
-              <View style={styles.reviewRow}>
-                <Text style={styles.reviewLabel}>Category</Text>
-                <Text style={styles.reviewValue}>{category}</Text>
-              </View>
-              <View style={styles.reviewRow}>
-                <Text style={styles.reviewLabel}>Tracking</Text>
-                <Text style={styles.reviewValue}>
-                  {type === "completion" ? "Checkmark" : `${measurableForType.target} ${measurableForType.unit}`}
-                </Text>
-              </View>
-              <View style={styles.reviewRow}>
-                <Text style={styles.reviewLabel}>Schedule</Text>
-                <Text style={styles.reviewValue}>{frequencyLabel}</Text>
-              </View>
-              {!skipPlan && (
-                <View style={styles.reviewRow}>
-                  <Text style={styles.reviewLabel}>When</Text>
-                  <Text style={styles.reviewValue}>{whenStr.trim() || "—"}</Text>
+                  {(whenStr || whereStr || cueStr || rewardStr) ? (
+                    <View style={{ marginTop: 12 }}>
+                      <Text style={styles.reviewLabel}>Plan:</Text>
+                      <Text style={styles.reviewSmall}>
+                        {[
+                          whenStr && `When: ${whenStr}`,
+                          whereStr && `Where: ${whereStr}`,
+                          cueStr && `Cue: ${cueStr}`,
+                          rewardStr && `Reward: ${rewardStr}`,
+                        ]
+                          .filter(Boolean)
+                          .join(" • ")}
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
               )}
-              {!!whereStr.trim() && (
-                <View style={styles.reviewRow}>
-                  <Text style={styles.reviewLabel}>Where</Text>
-                  <Text style={styles.reviewValue}>{whereStr.trim()}</Text>
-                </View>
-              )}
-              {!skipWhy && !!whyStr.trim() && (
-                <View style={styles.reviewRow}>
-                  <Text style={styles.reviewLabel}>Why</Text>
-                  <Text style={styles.reviewValue}>{whyStr.trim()}</Text>
-                </View>
-              )}
-
-              {!!stepError && (
-                <View style={[styles.errorBox, { marginTop: 12 }]}>
-                  <Text style={styles.errorTitle}>Almost there</Text>
-                  <Text style={styles.errorText}>{stepError}</Text>
-                </View>
-              )}
-
-              <View style={styles.gap12} />
-              <Button variant="primary" label="Plant this goal" onPress={save} disabled={!!stepError} />
-              <Pressable onPress={() => navigation.goBack()} style={styles.cancelBtn}>
-                <Text style={styles.cancelText}>Cancel</Text>
-              </Pressable>
             </View>
-          )}
+          </ScrollView>
 
-          {!!stepError && step !== 5 && (
-            <View style={styles.errorInline}>
-              <Text style={styles.errorInlineText}>{stepError}</Text>
-            </View>
-          )}
-        </View>
-
-        {/* Footer nav */}
-        <View style={styles.footer}>
-          <Button variant="secondary" label="Back" onPress={goBack} disabled={step === 0} />
-          <View style={{ width: 10 }} />
-          <Button
-            variant="primary"
-            label={isLast ? "Save" : "Next"}
-            onPress={isLast ? save : goNext}
-            disabled={isLast ? !!stepError : !canNext}
-          />
-        </View>
-
-        {/* Help modal */}
-        <Modal visible={helpOpen} transparent animationType="fade" onRequestClose={() => setHelpOpen(false)}>
-          <Pressable style={styles.modalBackdrop} onPress={() => setHelpOpen(false)} />
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>{helpContent.title}</Text>
-            <Text style={styles.modalBody}>{helpContent.body}</Text>
-
-            <View style={styles.gap12} />
-            <Button
-              variant="primary"
-              label="Start tutorial"
-              onPress={() => {
-                setHelpOpen(false);
-                startTutorial();
-              }}
+          {/* Buttons fixed below scroll, safely padded for tab bar */}
+          <View style={[styles.footer, { paddingBottom: bottomPad }]}>
+            <GhostButton
+              label={step === 0 ? "Back" : "Previous"}
+              onPress={() => (step === 0 ? navigation.goBack() : goPrev())}
             />
-            <View style={styles.gap10} />
-            <Button variant="secondary" label="Contact support" onPress={contactSupport} />
-            <View style={styles.gap10} />
-            <Button variant="secondary" label="Close" onPress={() => setHelpOpen(false)} />
-          </View>
-        </Modal>
 
-        {/* Tutorial overlay */}
-        <Modal visible={tutorialOn} transparent animationType="fade" onRequestClose={endTutorial}>
-          <View style={styles.tutorialOverlay}>
-            <Pressable style={StyleSheet.absoluteFillObject} onPress={nextTutorial} />
+            {showSkip && <GhostButton label="Skip" onPress={() => setStep(5)} />}
 
-            {spot && (
-              <View
-                pointerEvents="none"
-                style={[
-                  styles.highlight,
-                  {
-                    left: Math.max(12, spot.x - 8),
-                    top: Math.max(12, spot.y - 8),
-                    width: Math.min(W - 24, spot.width + 16),
-                    height: Math.min(H - 24, spot.height + 16),
-                  },
-                ]}
-              />
+            {step < totalSteps - 1 ? (
+              <PrimaryButton label="Next" onPress={goNext} disabled={!stepValid} />
+            ) : (
+              <PrimaryButton label="Plant Goal" onPress={saveGoal} disabled={!stepValid} />
             )}
-
-            <View style={styles.tooltip}>
-              <Text style={styles.tooltipTitle}>{tutorialSteps[tutorialIndex]?.title}</Text>
-              <Text style={styles.tooltipBody}>{tutorialSteps[tutorialIndex]?.body}</Text>
-
-              <View style={styles.gap12} />
-              <View style={{ flexDirection: "row" }}>
-                <Button variant="secondary" label="Skip" onPress={endTutorial} />
-                <View style={{ width: 10 }} />
-                <Button
-                  variant="primary"
-                  label={tutorialIndex === tutorialSteps.length - 1 ? "Done" : "Next"}
-                  onPress={nextTutorial}
-                />
-              </View>
-            </View>
           </View>
-        </Modal>
+        </View>
+
+        {/* Help overlay */}
+        <CoachMark visible={helpOpen} title={helpCopy.title} body={helpCopy.body} onClose={() => setHelpOpen(false)} />
       </KeyboardAvoidingView>
     </Page>
   );
 }
 
 const styles = StyleSheet.create({
-  // Header hierarchy
-  headerRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 10 },
-  hTitle: { fontSize: 20, fontWeight: "800", color: theme.text },
-  hSub: { marginTop: 4, fontSize: 12, fontWeight: "600", color: theme.muted, lineHeight: 16 },
-
-  helpBtn: {
-    height: 36,
-    paddingHorizontal: 12,
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
+  headerBtn: {
+    height: 42,
+    paddingHorizontal: 14,
     borderRadius: theme.radius,
     backgroundColor: theme.surface,
     alignItems: "center",
     justifyContent: "center",
-    marginLeft: 12,
   },
-  helpBtnText: { fontSize: 12, fontWeight: "700", color: theme.text },
+  headerBtnText: { fontWeight: "900", color: theme.text, fontSize: 14 },
+  headerTitle: { fontSize: 20, fontWeight: "900", color: theme.text },
+  headerSub: { marginTop: 4, fontSize: 13, fontWeight: "800", color: theme.muted },
 
-  // Progress dots
-  dotsRow: { flexDirection: "row", alignItems: "center", marginBottom: 12 },
-  dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: theme.outline, marginRight: 8 },
-  dotDone: { backgroundColor: theme.text2 },
-  dotActive: { backgroundColor: theme.accent },
+  dotsRow: { flexDirection: "row", gap: 8, marginBottom: 12 },
+  dot: { width: 10, height: 10, borderRadius: 5, borderWidth: 2, borderColor: theme.outline, backgroundColor: "transparent" },
 
-  // Layout
-  contentArea: { flex: 1 },
+  content: { flex: 1, minHeight: 0 },
+
+  // Card holds page content, footer sits under it with breathing room
   card: { backgroundColor: theme.surface, borderRadius: theme.radius, padding: 16 },
-  footer: { flexDirection: "row", paddingTop: 10, paddingBottom: 6 },
+  stepBlock: { gap: 0 },
 
-  // Type scale
-  sectionLabel: { fontSize: 13, fontWeight: "800", color: theme.text, marginBottom: 6 },
-  sectionHelper: { fontSize: 12, fontWeight: "600", color: theme.muted, lineHeight: 16 },
+  title: { fontSize: 18, fontWeight: "900", color: theme.text },
+  helper: { marginTop: 8, fontSize: 14, fontWeight: "700", color: theme.muted, lineHeight: 20 },
+  helperTiny: { marginTop: 6, fontSize: 13, fontWeight: "700", color: theme.muted2, lineHeight: 18 },
 
-  // Inputs
+  label: { marginTop: 14, fontSize: 14, fontWeight: "900", color: theme.text },
+
   input: {
-    backgroundColor: theme.surface2,
+    marginTop: 8,
+    height: 52,
     borderRadius: theme.radius,
-    paddingHorizontal: 14,
-    height: 46,
-    fontSize: 14,
-    fontWeight: "600",
+    backgroundColor: theme.surface2,
+    paddingHorizontal: 16,
+    fontSize: 16,
+    fontWeight: "800",
     color: theme.text,
   },
-  textArea: { height: 96, paddingTop: 12, textAlignVertical: "top" },
 
-  // Spacing tokens
-  gap10: { height: 10 },
-  gap12: { height: 12 },
-  gap16: { height: 16 },
+  warnText: { marginTop: 6, fontSize: 11, fontWeight: "900", color: theme.dangerText },
 
-  // Chips
-  chipWrap: { flexDirection: "row", flexWrap: "wrap", marginTop: 10, gap: 10 },
-  chip: {
-    height: 34,
-    paddingHorizontal: 12,
-    borderRadius: theme.radius,
-    backgroundColor: theme.surface2,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  chipActive: { backgroundColor: theme.accent },
-  chipText: { fontSize: 12, fontWeight: "700", color: theme.text },
-  chipTextActive: { color: theme.bg },
+  pillRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 10 },
+  pill: { height: 38, paddingHorizontal: 14, borderRadius: theme.radius, backgroundColor: theme.surface2, alignItems: "center", justifyContent: "center" },
+  pillActive: { backgroundColor: theme.accent },
+  pillText: { fontSize: 14, fontWeight: "800", color: theme.text },
+  pillTextActive: { color: theme.bg },
 
-  // Segmented control
-  segmentWrap: { flexDirection: "row", backgroundColor: theme.surface2, borderRadius: theme.radius, padding: 4, marginTop: 10 },
-  segment: { flex: 1, height: 40, borderRadius: theme.radius, alignItems: "center", justifyContent: "center" },
-  segmentActive: { backgroundColor: theme.accent },
-  segmentText: { fontSize: 12, fontWeight: "700", color: theme.text },
-  segmentTextActive: { color: theme.bg },
+  typeGrid: { marginTop: 12, gap: 10 },
+  typeCard: { backgroundColor: theme.surface2, borderRadius: theme.radius, padding: 12 },
+  typeCardActive: { backgroundColor: theme.accent },
+  typeTitle: { fontSize: 15, fontWeight: "900", color: theme.text },
+  typeTitleActive: { color: theme.bg },
+  typeDesc: { marginTop: 6, fontSize: 14, fontWeight: "700", color: theme.muted, lineHeight: 20 },
+  typeDescActive: { color: theme.bg },
 
-  row: { flexDirection: "row", marginTop: 10 },
+  twoCol: { flexDirection: "row", marginTop: 8 },
+  daysRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 },
 
-  // Days grid (consistent spacing, no space-between weirdness)
-  daysGrid: { flexDirection: "row", flexWrap: "wrap", marginTop: 10, gap: 10 },
-  dayPill: {
-    minWidth: 92,
-    height: 40,
-    paddingHorizontal: 12,
-    borderRadius: theme.radiusSm,
-    backgroundColor: theme.surface2,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  dayPillActive: { backgroundColor: theme.accent },
-  dayText: { fontSize: 12, fontWeight: "700", color: theme.text },
-  dayTextActive: { color: theme.bg },
+  rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
 
-  previewRow: {
-    marginTop: 14,
-    backgroundColor: theme.surface2,
-    borderRadius: theme.radius,
-    paddingHorizontal: 14,
-    height: 44,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  previewLabel: { fontSize: 12, fontWeight: "700", color: theme.text },
-  previewValue: { fontSize: 12, fontWeight: "700", color: theme.muted },
+  smallBtn: { height: 30, paddingHorizontal: 10, borderRadius: theme.radiusSm, backgroundColor: theme.surface2, alignItems: "center", justifyContent: "center" },
+  smallBtnText: { fontSize: 12, fontWeight: "900", color: theme.muted },
 
-  // Skip toggles
-  skipRow: { flexDirection: "row", marginTop: 12, gap: 10 },
-  skipToggle: {
-    flex: 1,
-    height: 36,
-    borderRadius: theme.radius,
-    backgroundColor: theme.surface2,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  skipToggleOn: { backgroundColor: theme.accent },
-  skipText: { fontSize: 12, fontWeight: "700", color: theme.text },
-  skipTextOn: { color: theme.bg },
+  smallToggle: { height: 30, paddingHorizontal: 10, borderRadius: theme.radiusSm, backgroundColor: theme.surface2, alignItems: "center", justifyContent: "center" },
+  smallToggleActive: { backgroundColor: theme.accent },
+  smallToggleText: { fontSize: 12, fontWeight: "900", color: theme.muted },
+  smallToggleTextActive: { color: theme.bg },
 
-  inlineLink: { marginTop: 8, alignSelf: "flex-start" },
-  inlineLinkText: { fontSize: 12, fontWeight: "700", color: theme.muted, textDecorationLine: "underline" },
+  footer: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 12 },
 
-  // Errors
-  errorInline: {
-    marginTop: 10,
-    backgroundColor: theme.dangerBg,
-    borderRadius: theme.radius,
-    padding: 12,
-  },
-  errorInlineText: { color: theme.dangerText, fontSize: 12, fontWeight: "700", lineHeight: 16 },
+  primaryBtn: { flex: 1, height: 50, borderRadius: theme.radius, backgroundColor: theme.accent, alignItems: "center", justifyContent: "center" },
+  primaryBtnText: { color: theme.bg, fontWeight: "900", fontSize: 15 },
 
-  errorBox: { backgroundColor: theme.dangerBg, borderRadius: theme.radius, padding: 12 },
-  errorTitle: { fontWeight: "800", color: theme.dangerText },
-  errorText: { marginTop: 6, fontWeight: "700", color: theme.dangerText, lineHeight: 16 },
+  ghostBtn: { height: 50, paddingHorizontal: 16, borderRadius: theme.radius, backgroundColor: theme.surface, alignItems: "center", justifyContent: "center" },
+  ghostBtnText: { color: theme.text, fontWeight: "900", fontSize: 15 },
 
-  // Buttons
-  btnBase: { flex: 1, height: 48, borderRadius: theme.radius, alignItems: "center", justifyContent: "center" },
-  btnPrimary: { backgroundColor: theme.accent },
-  btnSecondary: { backgroundColor: theme.surface },
-  btnTextBase: { fontSize: 14 },
-  btnTextPrimary: { color: theme.bg, fontWeight: "800" },
-  btnTextSecondary: { color: theme.text, fontWeight: "800" },
+  reviewLine: { marginTop: 8, fontSize: 14, fontWeight: "800", color: theme.text },
+  reviewLabel: { fontWeight: "900", color: theme.text },
+  reviewBullet: { marginTop: 6, fontSize: 14, fontWeight: "800", color: theme.text },
+  reviewSmall: { marginTop: 6, fontSize: 13, fontWeight: "800", color: theme.muted, lineHeight: 18 },
 
-  cancelBtn: {
-    marginTop: 10,
-    height: 46,
-    borderRadius: theme.radius,
-    backgroundColor: theme.surface,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cancelText: { color: theme.text, fontWeight: "800", fontSize: 14 },
-
-  // Review
-  reviewRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.surface2 },
-  reviewLabel: { fontSize: 12, fontWeight: "700", color: theme.muted },
-  reviewValue: { fontSize: 12, fontWeight: "800", color: theme.text, maxWidth: "66%", textAlign: "right" },
-
-  // Modal
-  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.35)" },
-  modalCard: {
-    position: "absolute",
-    left: 18,
-    right: 18,
-    top: 110,
-    backgroundColor: theme.surface,
-    borderRadius: theme.radius,
-    padding: 16,
-  },
-  modalTitle: { fontSize: 16, fontWeight: "800", color: theme.text, marginBottom: 6 },
-  modalBody: { fontSize: 12, fontWeight: "600", color: theme.muted, lineHeight: 16 },
-
-  // Tutorial overlay
-  tutorialOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.35)", justifyContent: "flex-end", padding: 16 },
-  highlight: {
-    position: "absolute",
-    borderRadius: 14,
-    borderWidth: 2,
-    borderColor: theme.accent,
-    backgroundColor: "rgba(255,255,255,0.08)",
-  },
-  tooltip: { backgroundColor: theme.surface, borderRadius: theme.radius, padding: 14 },
-  tooltipTitle: { fontSize: 14, fontWeight: "800", color: theme.text, marginBottom: 6 },
-  tooltipBody: { fontSize: 12, fontWeight: "600", color: theme.muted, lineHeight: 16 },
+  coachOverlay: { flex: 1, justifyContent: "flex-end" },
+  coachBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.35)" },
+  coachCard: { margin: 14, padding: 14, borderRadius: theme.radius, backgroundColor: theme.surface },
+  coachTitle: { fontSize: 14, fontWeight: "900", color: theme.text },
+  coachBody: { marginTop: 8, fontSize: 12, fontWeight: "800", color: theme.muted, lineHeight: 16 },
 });
