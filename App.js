@@ -4,7 +4,8 @@ import { StatusBar } from "expo-status-bar";
 import { NavigationContainer } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { SafeAreaProvider } from "react-native-safe-area-context"; // FIXED: Added this import
+import { SafeAreaProvider } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 
 // Firebase & Auth
 import { onAuthStateChanged } from "firebase/auth";
@@ -15,7 +16,8 @@ import Login from "./login";
 import { GoalsProvider } from "./components/GoalsStore";
 import { theme } from "./theme";
 
-// Screen Imports (Ensure these paths are correct)
+import WelcomeScreen from "./screens/WelcomeScreen";
+import HomeScreen from "./screens/HomeScreen";
 import GoalsScreen from "./screens/GoalsScreen";
 import AddGoalScreen from "./screens/AddGoalScreen";
 import GoalScreen from "./screens/GoalScreen";
@@ -32,6 +34,7 @@ function Placeholder({ title }) {
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
+const RootStack = createNativeStackNavigator();
 
 function GoalsStack() {
   return (
@@ -71,35 +74,78 @@ export default function App() {
     <SafeAreaProvider> 
       <GoalsProvider>
         <NavigationContainer>
-          <StatusBar style="dark" />
+        <StatusBar style="dark" />
 
-          {user ? (
-            /* APP CONTENT (Tabs) */
-            <Tab.Navigator
-              screenOptions={{
-                headerShown: false,
-                tabBarStyle: {
-                  height: 64,
-                  backgroundColor: theme.surface,
-                  borderTopWidth: 0,
-                },
-                tabBarActiveTintColor: theme.text,
-                tabBarInactiveTintColor: theme.muted,
-                tabBarLabelStyle: { fontSize: 10, marginBottom: 8, fontWeight: "800" },
-              }}
-            >
-              <Tab.Screen name="Rank" children={() => <Placeholder title="Rank (Coming Soon)" />} />
-              <Tab.Screen name="Goals" component={GoalsStack} />
-              <Tab.Screen name="Add" component={AddStack} options={{ tabBarLabel: "Add" }} />
-              <Tab.Screen name="Calendar" component={CalendarScreen} />
-              <Tab.Screen name="Garden" children={() => <Placeholder title="Garden (Coming Soon)" />} />
-            </Tab.Navigator>
-          ) : (
-            /* LOGIN FLOW */
-            <Stack.Navigator screenOptions={{ headerShown: false }}>
-              <Stack.Screen name="Login" component={Login} />
-            </Stack.Navigator>
-          )}
+          <RootStack.Navigator screenOptions={{ headerShown: false }}>
+    <RootStack.Screen name="Welcome" component={WelcomeScreen} />
+
+    <RootStack.Screen name="Tabs">
+  {() => (
+    <Tab.Navigator
+      screenOptions={({ route }) => ({
+        headerShown: false,
+        tabBarShowLabel: true,
+        tabBarHideOnKeyboard: true,
+
+        // Figma-like bar (shorter, padded, clean)
+        tabBarStyle: {
+          height: 64,
+          paddingTop: 8,
+          paddingBottom: 10,
+          backgroundColor: theme.surface,
+          borderTopWidth: 0,
+          elevation: 10, // Android shadow
+        },
+
+        tabBarActiveTintColor: theme.text,
+        tabBarInactiveTintColor: theme.muted,
+
+        // Figma-like label
+        tabBarLabelStyle: {
+          fontSize: 10,
+          fontWeight: "800",
+          marginTop: 2,
+        },
+
+        // Icon mapping to match your Figma tabs
+        tabBarIcon: ({ color, size, focused }) => {
+          const map = {
+            Rank: focused ? "trophy" : "trophy-outline",
+            Goals: focused ? "leaf" : "leaf-outline",      // "Habits" in Figma
+            Add: focused ? "add-circle" : "add-circle-outline",
+            Calendar: focused ? "calendar" : "calendar-outline",
+            Garden: focused ? "flower" : "flower-outline",
+          };
+
+          // Slightly larger icon like Figma
+          const iconName = map[route.name] ?? "ellipse-outline";
+          const iconSize = route.name === "Add" ? 28 : 22;
+
+          return <Ionicons name={iconName} size={iconSize} color={color} />;
+        },
+      })}
+    >
+      <Tab.Screen name="Rank" children={() => <Placeholder title="Rank (Coming Soon)" />} />
+
+      {/* This route is named "Goals" but your Figma label says "Habits" */}
+      <Tab.Screen
+        name="Goals"
+        component={GoalsStack}
+        options={{ tabBarLabel: "Habits" }}
+      />
+
+      <Tab.Screen
+        name="Add"
+        component={AddStack}
+        options={{ tabBarLabel: "Add" }}
+      />
+
+      <Tab.Screen name="Calendar" children={() => <Placeholder title="Calendar (Coming Soon)" />} />
+      <Tab.Screen name="Garden" children={() => <Placeholder title="Garden (Coming Soon)" />} />
+    </Tab.Navigator>
+  )}
+</RootStack.Screen>
+  </RootStack.Navigator>
         </NavigationContainer>
       </GoalsProvider>
     </SafeAreaProvider>
