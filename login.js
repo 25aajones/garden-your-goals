@@ -1,57 +1,97 @@
-import React, { useEffect } from 'react';
-import * as WebBrowser from 'expo-web-browser';
-import * as AuthSession from 'expo-auth-session';
-import * as Google from 'expo-auth-session/providers/google';
-import { GoogleAuthProvider, signInWithCredential } from 'firebase/auth';
-import { Button, View, Text, StyleSheet } from 'react-native';
-import { auth } from './firebaseConfig';
-
-// Ensures the browser window closes correctly after login
-WebBrowser.maybeCompleteAuthSession();
+import React, { useState } from 'react';
+import { View, Text, TextInput, Button, StyleSheet, Alert } from 'react-native';
+import { auth, db } from './firebaseConfig';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 export default function Login() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
 
-  // ✅ STEP 1: Log the exact redirect URI being used
-  const redirectUri = AuthSession.makeRedirectUri({
-    useProxy: true,
-  });
-
-  console.log("Redirect URI:", redirectUri);
-
-  // ✅ Google Auth Setup
-  const [request, response, promptAsync] = Google.useIdTokenAuthRequest({
-    webClientId: '1043088781890-l5c3ltnel8focg814gsjquthkrou0221.apps.googleusercontent.com',
-    iosClientId: '1043088781890-8ghfebnkm1hrdmrq7r0csgvadf2vg3bk.apps.googleusercontent.com',
-    redirectUri: redirectUri,
-  });
-
-  // ✅ Handle Google response
-  useEffect(() => {
-    if (response?.type === 'success') {
-      const { id_token } = response.params;
-
-      const credential = GoogleAuthProvider.credential(id_token);
-
-      signInWithCredential(auth, credential)
-        .then((userCredential) => {
-          console.log("Logged in as:", userCredential.user.email);
-        })
-        .catch((error) => {
-          console.error("Firebase Auth Error:", error.message);
-        });
+  // Login user and ensure they exist in Firestore
+  const handleLogin = async () => {
+    if (!email || !password) {
+      Alert.alert('Error', 'Please enter both email and password.');
+      return;
     }
-  }, [response]);
+
+    try {
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+      console.log('Logged in as:', user.email);
+
+      // Check if user exists in Firestore
+      const userRef = doc(db, 'users', user.uid);
+      const userSnap = await getDoc(userRef);
+
+      if (!userSnap.exists()) {
+        // If not, create user in Firestore
+        await setDoc(userRef, {
+          email: user.email,
+          createdAt: serverTimestamp(),
+          displayName: '',
+          goals: []
+        });
+        console.log('User created in Firestore');
+      }
+
+      Alert.alert('Success', `Logged in as ${user.email}`);
+    } catch (error) {
+      Alert.alert('Login Error', error.message);
+    }
+  };
+
+  // Optional: register a new user
+  const handleRegister = async () => {
+    if (!email || !password) {
+      Alert.alert('Error', 'Please enter both email and password.');
+      return;
+    }
+
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+      console.log('Registered as:', user.email);
+
+      // Create user in Firestore
+      await setDoc(doc(db, 'users', user.uid), {
+        email: user.email,
+        createdAt: serverTimestamp(),
+        displayName: '',
+        goals: []
+      });
+
+      Alert.alert('Success', 'User registered successfully!');
+    } catch (error) {
+      Alert.alert('Registration Error', error.message);
+    }
+  };
 
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Garden Your Goals</Text>
+
+      <TextInput
+        style={styles.input}
+        placeholder="Email"
+        value={email}
+        onChangeText={setEmail}
+        autoCapitalize="none"
+        keyboardType="email-address"
+      />
+      <TextInput
+        style={styles.input}
+        placeholder="Password"
+        value={password}
+        onChangeText={setPassword}
+        secureTextEntry
+      />
+
       <View style={styles.buttonWrapper}>
-        <Button
-          disabled={!request}
-          title="Sign in with Google"
-          color="#4285F4"
-          onPress={() => promptAsync({ useProxy: true })}
-        />
+        <Button title="Login" onPress={handleLogin} color="#2D5A27" />
+      </View>
+      <View style={styles.buttonWrapper}>
+        <Button title="Register" onPress={handleRegister} color="#4285F4" />
       </View>
     </View>
   );
@@ -62,7 +102,8 @@ const styles = StyleSheet.create({
     flex: 1, 
     justifyContent: 'center', 
     alignItems: 'center', 
-    backgroundColor: '#F5F5F5' 
+    backgroundColor: '#F5F5F5',
+    paddingHorizontal: 20
   },
   title: { 
     fontSize: 32, 
@@ -70,9 +111,18 @@ const styles = StyleSheet.create({
     marginBottom: 40,
     color: '#2D5A27'
   },
+  input: {
+    width: '100%',
+    height: 50,
+    borderColor: '#ccc',
+    borderWidth: 1,
+    borderRadius: 8,
+    marginBottom: 15,
+    paddingHorizontal: 15,
+    backgroundColor: '#fff'
+  },
   buttonWrapper: {
-    width: '70%',
-    borderRadius: 10,
-    overflow: 'hidden'
+    width: '100%',
+    marginVertical: 5,
   }
 });
