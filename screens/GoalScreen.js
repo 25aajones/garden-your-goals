@@ -1,192 +1,167 @@
-// screens/GoalsScreen.js
-import React, { useMemo } from "react";
-import { View, Text, StyleSheet, Pressable, FlatList } from "react-native";
+// screens/GoalScreen.js
+import React, { useState, useEffect } from "react";
+import { View, Text, StyleSheet, Pressable, ActivityIndicator } from "react-native";
 import Page from "../components/Page";
 import { theme } from "../theme";
-import { useGoals, fromKey, toKey, isScheduledOn, isWithinActiveRange } from "../components/GoalsStore";
+import { useGoals } from "../components/GoalsStore";
 
-const DAYS = [
-  { label: "SUN", day: 0 },
-  { label: "MON", day: 1 },
-  { label: "TUE", day: 2 },
-  { label: "WED", day: 3 },
-  { label: "THU", day: 4 },
-  { label: "FRI", day: 5 },
-  { label: "SAT", day: 6 },
-];
+// FIREBASE IMPORTS
+import { doc, onSnapshot } from "firebase/firestore";
+import { auth, db } from "../firebaseConfig";
 
-function startOfWeek(date = new Date()) {
-  const d = new Date(date);
-  const day = d.getDay();
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() - day);
-  return d;
-}
-function weekDates(date = new Date()) {
-  const start = startOfWeek(date);
-  return Array.from({ length: 7 }, (_, i) => {
-    const x = new Date(start);
-    x.setDate(start.getDate() + i);
-    return x;
-  });
-}
+export default function GoalScreen({ route, navigation }) {
+  const { goalId } = route.params || {};
+  const { selectedDateKey } = useGoals(); // We still need this for the date display
 
-function Droplet({ filled }) {
-  return (
-    <View style={[styles.droplet, filled ? styles.dropletFilled : styles.dropletOutline]} />
-  );
-}
+  const [goal, setGoal] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-export default function GoalsScreen({ navigation }) {
-  const { goals, selectedDateKey, setSelectedDateKey } = useGoals();
+  // Listen to Firebase for this specific goal
+  useEffect(() => {
+    console.log("--- FETCHING FROM FIREBASE ---");
+    console.log("Looking for Goal ID:", goalId);
 
-  const today = new Date();
-  const todayDay = today.getDay();
+    if (!auth.currentUser) {
+      console.log("User is not logged in!");
+      setLoading(false);
+      return;
+    }
 
-  const selectedDate = fromKey(selectedDateKey);
-  const selectedDay = selectedDate.getDay();
+    // Path: users -> [userId] -> goals -> [goalId]
+    const goalRef = doc(db, "users", auth.currentUser.uid, "goals", goalId);
+    
+    const unsubscribe = onSnapshot(goalRef, (docSnap) => {
+      if (docSnap.exists()) {
+        console.log("Goal found in Firebase!");
+        setGoal({ id: docSnap.id, ...docSnap.data() });
+      } else {
+        console.log("Goal document does not exist in Firebase!");
+        setGoal(null);
+      }
+      setLoading(false);
+    }, (error) => {
+      console.error("Firebase error:", error);
+      setLoading(false);
+    });
 
-  const week = useMemo(() => weekDates(selectedDate), [selectedDateKey]);
+    return () => unsubscribe();
+  }, [goalId]);
 
-  const filtered = useMemo(() => {
-    return goals
-      .filter((g) => isWithinActiveRange(g, selectedDate))
-      .filter((g) => isScheduledOn(g, selectedDate));
-  }, [goals, selectedDateKey]);
+  if (loading) {
+    return (
+      <Page>
+        <View style={styles.headerRow}>
+          <Pressable onPress={() => navigation.goBack()} hitSlop={10}>
+            <Text style={styles.backText}>← Back</Text>
+          </Pressable>
+        </View>
+        <View style={styles.centerWrap}>
+          <ActivityIndicator size="large" color={theme.accent} />
+        </View>
+      </Page>
+    );
+  }
+
+  if (!goal) {
+    return (
+      <Page>
+        <View style={styles.headerRow}>
+          <Pressable onPress={() => navigation.goBack()} hitSlop={10}>
+            <Text style={styles.backText}>← Back</Text>
+          </Pressable>
+        </View>
+        <View style={styles.centerWrap}>
+          <Text style={styles.empty}>Goal not found in Database</Text>
+        </View>
+      </Page>
+    );
+  }
+
+  // Calculate current progress
+  const isCompletion = goal.type === "completion";
+  const currentValue = isCompletion
+    ? (goal.logs?.completion?.[selectedDateKey]?.done ? 1 : 0)
+    : (goal.logs?.quantity?.[selectedDateKey]?.value ?? 0);
+    
+  const targetValue = isCompletion ? 1 : (goal.measurable?.target ?? 0);
+  const unit = isCompletion ? "" : (goal.measurable?.unit ?? "");
+  const isDone = currentValue >= targetValue && targetValue > 0;
 
   return (
     <Page>
       <View style={styles.headerRow}>
-        <Text style={styles.headerTitle}>Goals</Text>
-        <View style={styles.headerIcons}>
-          <View style={styles.headerIcon} />
-          <View style={styles.headerIcon} />
+        <Pressable onPress={() => navigation.goBack()} hitSlop={10}>
+          <Text style={styles.backText}>← Back</Text>
+        </Pressable>
+        <Text style={styles.headerTitle}>Goal Details</Text>
+        <View style={{ width: 50 }} />
+      </View>
+
+      <View style={styles.heroCard}>
+        <View style={styles.heroIcon} />
+        <Text style={styles.heroTitle}>{goal.name}</Text>
+        <Text style={styles.heroSub}>{goal.frequencyLabel}</Text>
+        {goal.currentStreak > 0 && (
+          <Text style={styles.streakText}>🔥 {goal.currentStreak} Day Streak</Text>
+        )}
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Progress for {selectedDateKey}</Text>
+        <View style={styles.progressCard}>
+          <View style={styles.progressInfo}>
+            <Text style={styles.progressValue}>
+              {currentValue} / {targetValue} {unit}
+            </Text>
+            <Text style={styles.progressStatus}>
+              {isDone ? "Completed! 🎉" : "In Progress"}
+            </Text>
+          </View>
+          <View style={[styles.statusIndicator, isDone && styles.statusIndicatorDone]} />
         </View>
       </View>
 
-      {/* Week strip */}
-      <View style={styles.dayStrip}>
-        {DAYS.map((d, idx) => {
-          const dateObj = week[idx];
-          const dateNum = dateObj.getDate();
-          const dayValue = dateObj.getDay(); // 0..6
-          const isSelected = dayValue === selectedDay && toKey(dateObj) === selectedDateKey;
-          const isToday = dayValue === todayDay && toKey(dateObj) === toKey(today);
-
-          return (
-            <Pressable
-              key={`${d.label}-${idx}`}
-              onPress={() => setSelectedDateKey(toKey(dateObj))}
-              style={[
-                styles.dayPill,
-                isSelected && styles.dayPillActive,
-                isToday && styles.dayPillTodayOutline,
-              ]}
-            >
-              <Text style={[styles.dayLabel, isSelected && styles.dayLabelActive]}>{d.label}</Text>
-              <Text style={[styles.dayNum, isSelected && styles.dayNumActive]}>{dateNum}</Text>
-            </Pressable>
-          );
-        })}
-      </View>
-
-      <FlatList
-        data={filtered}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={{ paddingBottom: 24 }}
-        renderItem={({ item }) => {
-          const done =
-            item.type === "completion"
-              ? !!item.logs?.completion?.[selectedDateKey]?.done
-              : (item.logs?.quantity?.[selectedDateKey]?.value ?? 0) >= (item.measurable?.target ?? 0);
-
-          const subtitle =
-            item.type === "quantity"
-              ? `${item.frequencyLabel} • ${item.measurable.target} ${item.measurable.unit}`
-              : `${item.frequencyLabel} • Completion`;
-
-          return (
-            <Pressable
-              style={styles.goalCard}
-              onPress={() => navigation.navigate("Goal", { goalId: item.id })}
-            >
-              <View style={styles.leftIcon} />
-              <View style={styles.textWrap}>
-                <Text style={styles.title} numberOfLines={1}>
-                  {item.name}
-                </Text>
-                <Text style={styles.sub} numberOfLines={1}>
-                  {subtitle}
-                </Text>
-                {!!item.plan?.when && (
-                  <Text style={styles.micro} numberOfLines={1}>
-                    Plan: {item.plan.when}
-                    {item.plan.where ? ` • ${item.plan.where}` : ""}
-                  </Text>
-                )}
-              </View>
-
-              <View style={styles.rightWrap}>
-                <Droplet filled={done} />
-              </View>
-            </Pressable>
-          );
-        }}
-        ListEmptyComponent={
-          <View style={{ marginTop: 26 }}>
-            <Text style={styles.empty}>Nothing Scheduled Yet</Text>
-            <Text style={styles.emptySub}>Add a goal that fits this day.</Text>
+      {(goal.plan?.when || goal.plan?.where) && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>The Plan</Text>
+          <View style={styles.planCard}>
+            {!!goal.plan?.when && (
+              <Text style={styles.planText}>
+                <Text style={styles.planLabel}>When: </Text>{goal.plan.when}
+              </Text>
+            )}
+            {!!goal.plan?.where && (
+              <Text style={[styles.planText, { marginTop: 8 }]}>
+                <Text style={styles.planLabel}>Where: </Text>{goal.plan.where}
+              </Text>
+            )}
           </View>
-        }
-      />
+        </View>
+      )}
     </Page>
   );
 }
 
 const styles = StyleSheet.create({
-  headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
-  headerTitle: { fontSize: 20, fontWeight: "900", color: theme.text },
-  headerIcons: { flexDirection: "row", gap: 10 },
-  headerIcon: { width: 18, height: 18, borderRadius: 6, backgroundColor: theme.surface },
-
-  dayStrip: { flexDirection: "row", justifyContent: "space-between", marginBottom: 14 },
-  dayPill: {
-    width: 42,
-    height: 46,
-    borderRadius: theme.radiusSm,
-    backgroundColor: theme.surface,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 6,
-  },
-  dayPillActive: { backgroundColor: theme.accent },
-  dayPillTodayOutline: { borderWidth: 2, borderColor: theme.outline },
-
-  dayLabel: { fontSize: 10, fontWeight: "900", color: theme.text, lineHeight: 12 },
-  dayNum: { marginTop: 2, fontSize: 12, fontWeight: "900", color: theme.text, lineHeight: 14 },
-  dayLabelActive: { color: theme.bg },
-  dayNumActive: { color: theme.bg },
-
-  goalCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: theme.card,
-    borderRadius: theme.radius,
-    paddingHorizontal: 12,
-    height: 74,
-    marginBottom: 12,
-  },
-  leftIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: theme.accent, marginRight: 12 },
-  textWrap: { flex: 1, paddingRight: 8 },
-  title: { fontSize: 14, fontWeight: "900", color: theme.text, lineHeight: 18 },
-  sub: { marginTop: 2, fontSize: 12, fontWeight: "800", color: theme.text2 },
-  micro: { marginTop: 3, fontSize: 11, fontWeight: "800", color: theme.muted },
-
-  rightWrap: { width: 44, alignItems: "flex-end", justifyContent: "center" },
-  droplet: { width: 20, height: 20, borderRadius: 10, transform: [{ rotate: "20deg" }] },
-  dropletOutline: { borderWidth: 2, borderColor: theme.accent, backgroundColor: "transparent" },
-  dropletFilled: { backgroundColor: theme.accent },
-
-  empty: { textAlign: "center", color: theme.muted, fontWeight: "900" },
-  emptySub: { marginTop: 6, textAlign: "center", color: theme.muted2, fontWeight: "800" },
+  headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 24 },
+  backText: { fontSize: 16, fontWeight: "800", color: theme.accent, width: 50 },
+  headerTitle: { fontSize: 18, fontWeight: "900", color: theme.text },
+  centerWrap: { flex: 1, justifyContent: "center", alignItems: "center" },
+  empty: { fontSize: 16, fontWeight: "800", color: theme.muted },
+  heroCard: { alignItems: "center", backgroundColor: theme.card, borderRadius: theme.radius, padding: 24, marginBottom: 24 },
+  heroIcon: { width: 64, height: 64, borderRadius: 32, backgroundColor: theme.accent, marginBottom: 16 },
+  heroTitle: { fontSize: 24, fontWeight: "900", color: theme.text, textAlign: "center" },
+  heroSub: { marginTop: 4, fontSize: 14, fontWeight: "800", color: theme.text2 },
+  streakText: { marginTop: 8, fontSize: 16, fontWeight: "900", color: theme.accent },
+  section: { marginBottom: 24 },
+  sectionTitle: { fontSize: 14, fontWeight: "900", color: theme.muted, marginBottom: 8, marginLeft: 4 },
+  progressCard: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: theme.surface, borderRadius: theme.radiusSm, padding: 16 },
+  progressInfo: { flex: 1 },
+  progressValue: { fontSize: 18, fontWeight: "900", color: theme.text },
+  progressStatus: { marginTop: 4, fontSize: 14, fontWeight: "800", color: theme.text2 },
+  statusIndicator: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: theme.accent },
+  statusIndicatorDone: { backgroundColor: theme.accent },
+  planCard: { backgroundColor: theme.surface, borderRadius: theme.radiusSm, padding: 16 },
+  planText: { fontSize: 15, fontWeight: "800", color: theme.text },
+  planLabel: { color: theme.muted },
 });
