@@ -1,14 +1,13 @@
 // ProfileScreen.js
 import React, { useState, useCallback } from "react";
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from "react-native";
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
-import { signOut } from "firebase/auth";
 import { doc, getDoc, collection, getDocs, updateDoc } from "firebase/firestore";
 import { auth, db } from "../firebaseConfig";
 import { theme } from "../theme";
 import { Ionicons } from "@expo/vector-icons";
 
-// IMPORT YOUR ACHIEVEMENTS STORE (Adjust path if needed)
+// IMPORT YOUR ACHIEVEMENTS STORE
 import { ACHIEVEMENTS } from "../AchievementsStore";
 
 export default function ProfileScreen({ navigation }) {
@@ -27,12 +26,10 @@ export default function ProfileScreen({ navigation }) {
 
   const fetchSocialData = async (uid) => {
     try {
-      // 1. Fetch User Profile
       const userRef = doc(db, "users", uid);
       const userSnap = await getDoc(userRef);
       let userData = userSnap.exists() ? userSnap.data() : {};
 
-      // 2. Fetch Goals & Calculate Score
       const goalsRef = collection(db, "users", uid, "goals");
       const goalsSnap = await getDocs(goalsRef);
       
@@ -41,11 +38,9 @@ export default function ProfileScreen({ navigation }) {
         const goal = doc.data();
         const currentStreak = goal.currentStreak || 0;
         const longestStreak = goal.longestStreak || 0;
-        
         calculatedScore += (currentStreak * 10) + (longestStreak * 5);
       });
 
-      // 3. Update Database if the score has changed
       if (userData.overallScore !== calculatedScore) {
         await updateDoc(userRef, { overallScore: calculatedScore });
         userData.overallScore = calculatedScore; 
@@ -53,28 +48,18 @@ export default function ProfileScreen({ navigation }) {
       
       setProfileData(userData);
 
-      // 4. Fetch Followers
       const followersRef = collection(db, "users", uid, "followers");
       const followersSnap = await getDocs(followersRef);
-      setFollowers(followersSnap.docs.map(doc => doc.data()));
+      setFollowers(followersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
 
-      // 5. Fetch Following
       const followingRef = collection(db, "users", uid, "following");
       const followingSnap = await getDocs(followingRef);
-      setFollowing(followingSnap.docs.map(doc => doc.data()));
+      setFollowing(followingSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
 
     } catch (error) {
       console.error("Error fetching social data:", error);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
-    } catch (error) {
-      Alert.alert("Error", "Failed to log out.");
     }
   };
 
@@ -86,35 +71,46 @@ export default function ProfileScreen({ navigation }) {
     );
   }
 
-  // Get the unlocked achievements array, or default to empty
   const unlockedIds = profileData?.unlockedAchievements || [];
+  const unlockedAchievements = ACHIEVEMENTS.filter(ach => unlockedIds.includes(ach.id));
 
   return (
     <ScrollView style={styles.container}>
-      <View style={{ height: 40 }} />
+      {/* Increased height to push settings down further */}
+      <View style={{ height: 45 }} />
+
+      {/* TOP BAR WITH SETTINGS ICON */}
+      <View style={styles.topBar}>
+        <TouchableOpacity onPress={() => navigation.navigate("Settings")}>
+          <Ionicons name="settings-outline" size={30} color="#4B4B4B" />
+        </TouchableOpacity>
+      </View>
 
       {/* User Info & Stats */}
       <View style={styles.userSection}>
+        
+        {/* Simple Static Avatar */}
         <View style={styles.avatar}>
-           <Ionicons name="person" size={50} color={theme.muted} />
+          <Ionicons name="person" size={50} color={theme.muted} />
         </View>
+
         <Text style={styles.userName}>{profileData?.username || "User"}</Text>
 
-        {/* Following / Followers Counters */}
-        <View style={styles.socialStatsRow}>
-          <View style={styles.socialStat}>
+        {/* REDESIGNED: Followers / Following Stats Card */}
+        <View style={styles.statsCard}>
+          <View style={styles.statItem}>
             <Text style={styles.statNumber}>{followers.length}</Text>
-            <Text style={styles.statLabel}>Followers</Text>
+            <Text style={styles.statLabel}>FOLLOWERS</Text>
           </View>
-          <View style={styles.socialStat}>
+          
+          <View style={styles.statDivider} />
+          
+          <View style={styles.statItem}>
             <Text style={styles.statNumber}>{following.length}</Text>
-            <Text style={styles.statLabel}>Following</Text>
+            <Text style={styles.statLabel}>FOLLOWING</Text>
           </View>
         </View>
 
-        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-          <Text style={styles.logoutButtonText}>Log Out</Text>
-        </TouchableOpacity>
       </View>
 
       {/* Stats Section */}
@@ -122,40 +118,38 @@ export default function ProfileScreen({ navigation }) {
          <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Activity Stats</Text>
         </View>
-        
         <View style={styles.userRow}>
            <Text style={{fontWeight: 'bold', flex: 1}}>🏆 Overall Score</Text>
            <Text style={{fontWeight: '900', color: "#2D5A27"}}>{profileData?.overallScore || 0} pts</Text>
         </View>
-
         <View style={styles.userRow}>
            <Text style={{fontWeight: 'bold', flex: 1}}>🔥 Overall App Streak</Text>
            <Text>{profileData?.streakCount || 0} Days</Text>
         </View>
       </View>
 
-      {/* --- NEW: TROPHY CASE SECTION --- */}
+      {/* Achievements Section */}
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Trophy Case</Text>
+          <Text style={styles.sectionTitle}>Achievements</Text>
         </View>
 
-        {unlockedIds.length === 0 ? (
+        {unlockedAchievements.length === 0 ? (
           <Text style={styles.emptyText}>Complete goals to start earning achievements!</Text>
         ) : (
-          <View style={styles.achievementsGrid}>
-            {unlockedIds.map((id, index) => {
-              const ach = ACHIEVEMENTS.find(a => a.id === id);
-              if (!ach) return null; // Safety check in case you delete an achievement later
-              
-              return (
-                <View key={index} style={styles.achievementCard}>
-                  <Text style={styles.achievementIcon}>{ach.icon}</Text>
-                  <Text style={styles.achievementTitle}>{ach.title}</Text>
-                  <Text style={styles.achievementDesc}>{ach.desc}</Text>
+          <View style={styles.achievementsList}>
+            {unlockedAchievements.map((ach, index) => (
+              <View key={index} style={styles.duoCard}>
+                <View style={styles.iconWrap}>
+                  <Ionicons name={ach.icon} size={36} color="#FF9600" />
                 </View>
-              );
-            })}
+                <View style={styles.achTextWrap}>
+                  <Text style={styles.duoTitle}>{ach.title}</Text>
+                  <Text style={styles.duoDesc}>{ach.desc}</Text>
+                  <Text style={styles.completedText}>COMPLETED</Text>
+                </View>
+              </View>
+            ))}
           </View>
         )}
       </View>
@@ -176,20 +170,22 @@ export default function ProfileScreen({ navigation }) {
           <Text style={styles.emptyText}>You aren't following anyone yet.</Text>
         ) : (
           following.map((user, index) => (
-            <View key={index} style={styles.userRow}>
+            <View key={user.id || index} style={styles.userRow}>
               <View style={styles.userAvatar}>
                 <Ionicons name="person" size={20} color={theme.muted} />
               </View>
               <Text style={styles.listUserName}>{user.username}</Text>
-              <TouchableOpacity style={styles.viewButton}>
-                <Text style={styles.viewButtonText}>View Profile</Text>
-              </TouchableOpacity>
+                <TouchableOpacity 
+                    style={styles.viewButton}
+                    onPress={() => navigation.navigate("UserProfile", { userId: user.id || user.uid })}
+                    >
+                    <Text style={styles.viewButtonText}>View Profile</Text>
+                </TouchableOpacity>
             </View>
           ))
         )}
       </View>
 
-      {/* Bottom padding for scrollability */}
       <View style={{ height: 40 }} />
     </ScrollView>
   );
@@ -197,18 +193,24 @@ export default function ProfileScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.bg, padding: 16 },
+  
+  // Settings Icon lowered slightly
+  topBar: { flexDirection: "row", justifyContent: "flex-end", marginBottom: 15 },
+  
   userSection: { alignItems: "center", marginBottom: 24 },
-  avatar: { width: 100, height: 100, borderRadius: 50, backgroundColor: theme.surface, alignItems: "center", justifyContent: "center", marginBottom: 8 },
-  userName: { fontSize: 22, fontWeight: "800", marginBottom: 12 },
   
-  socialStatsRow: { flexDirection: "row", justifyContent: "center", width: "60%", marginBottom: 16 },
-  socialStat: { alignItems: "center", marginHorizontal: 20 },
-  statNumber: { fontSize: 20, fontWeight: "800", color: "#2D5A27" },
-  statLabel: { fontSize: 12, color: theme.muted, fontWeight: "600" },
+  // Restored clean static avatar
+  avatar: { width: 100, height: 100, borderRadius: 50, backgroundColor: theme.surface, alignItems: "center", justifyContent: "center", marginBottom: 12 },
+  
+  userName: { fontSize: 24, fontWeight: "900", color: "#333", marginBottom: 16 },
+  
+  // Redesigned Stats Card
+  statsCard: { flexDirection: "row", backgroundColor: "#fff", borderRadius: 16, paddingVertical: 16, paddingHorizontal: 24, width: "85%", justifyContent: "space-between", alignItems: "center", borderWidth: 2, borderColor: "#E5E5E5", borderBottomWidth: 4, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 3, elevation: 2 },
+  statItem: { flex: 1, alignItems: "center" },
+  statNumber: { fontSize: 20, fontWeight: "900", color: "#2D5A27", marginBottom: 4 },
+  statLabel: { fontSize: 11, color: "#888", fontWeight: "800", letterSpacing: 0.5 },
+  statDivider: { width: 2, height: "80%", backgroundColor: "#E5E5E5", marginHorizontal: 15 },
 
-  logoutButton: { backgroundColor: "#A88F6F", paddingHorizontal: 24, paddingVertical: 8, borderRadius: 8 },
-  logoutButtonText: { color: "#fff", fontWeight: "700", fontSize: 14 },
-  
   section: { marginBottom: 24 },
   sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: 'center', marginBottom: 12 },
   sectionTitle: { fontSize: 18, fontWeight: "800" },
@@ -221,21 +223,13 @@ const styles = StyleSheet.create({
   viewButton: { backgroundColor: "#A88F6F", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 },
   viewButtonText: { color: "#fff", fontSize: 12, fontWeight: "600" },
   
-  // NEW STYLES FOR TROPHY CASE
-  achievementsGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" },
-  achievementCard: { 
-    width: "48%", // Put two side-by-side
-    backgroundColor: "#fff", 
-    borderRadius: 8, 
-    padding: 12, 
-    marginBottom: 12, 
-    alignItems: "center",
-    borderWidth: 2,
-    borderColor: "#E0F7D4" // Light green border to tie it together
-  },
-  achievementIcon: { fontSize: 32, marginBottom: 8 },
-  achievementTitle: { fontSize: 14, fontWeight: "900", textAlign: "center", marginBottom: 4 },
-  achievementDesc: { fontSize: 11, textAlign: "center", color: theme.muted, fontWeight: "600" },
+  achievementsList: { flexDirection: "column" },
+  duoCard: { flexDirection: "row", alignItems: "center", backgroundColor: "#ffffff", borderRadius: 16, padding: 16, marginBottom: 12, borderWidth: 2, borderColor: "#E5E5E5", borderBottomWidth: 4 },
+  iconWrap: { width: 70, height: 70, borderRadius: 35, justifyContent: "center", alignItems: "center", marginRight: 16, backgroundColor: "#FFDF00" },
+  achTextWrap: { flex: 1 },
+  duoTitle: { fontSize: 18, fontWeight: "900", color: "#4B4B4B", marginBottom: 4 },
+  duoDesc: { fontSize: 14, color: "#777777", fontWeight: "600", lineHeight: 20 },
+  completedText: { marginTop: 8, fontSize: 12, fontWeight: "900", color: "#FF9600", letterSpacing: 1 },
 
   emptyText: { color: theme.muted, fontStyle: 'italic', marginTop: 10, textAlign: "center" }
 });

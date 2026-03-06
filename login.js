@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, Button, StyleSheet, Alert, ActivityIndicator, ScrollView } from 'react-native';
 import { auth, db } from './firebaseConfig';
 import { onAuthStateChanged, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
-import { doc, getDoc, setDoc, serverTimestamp, collection } from 'firebase/firestore';
+// NEW: Imported query, where, and getDocs
+import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs } from 'firebase/firestore';
 
 export default function Login() {
   const [view, setView] = useState('loading'); 
@@ -43,16 +44,31 @@ export default function Login() {
   };
 
   const handleSaveUsername = async () => {
-    if (username.trim().length < 3) {
+    const trimmedUsername = username.trim();
+
+    if (trimmedUsername.length < 3) {
       return Alert.alert("Error", "Username must be at least 3 characters.");
     }
 
     setView('loading');
     try {
+      // --- NEW: CHECK IF USERNAME IS ALREADY TAKEN ---
+      const usersRef = collection(db, 'users');
+      const q = query(usersRef, where("username", "==", trimmedUsername));
+      const querySnapshot = await getDocs(q);
+
+      if (!querySnapshot.empty) {
+        // Someone else already has it!
+        Alert.alert("Username Taken", "Sorry, that username is already in use. Please pick another one.");
+        setView('needsUsername'); // Send them back to the form
+        return; // Stop the save process
+      }
+      // -----------------------------------------------
+
       const userUid = auth.currentUser.uid;
       await setDoc(doc(db, 'users', userUid), {
-        username: username.trim(),
-        searchKey: username.trim().toLowerCase(),
+        username: trimmedUsername,
+        searchKey: trimmedUsername.toLowerCase(),
         email: auth.currentUser.email,
         createdAt: serverTimestamp(),
       }, { merge: true });
@@ -60,14 +76,13 @@ export default function Login() {
       console.log("LOG: Setup successful.");
       setView('home');
     } catch (e) {
+      console.error("Save Error:", e);
       Alert.alert("Error", "Save failed.");
       setView('needsUsername');
     }
   };
 
   // --- STRICT RENDERING ---
-  // We use "return" inside each IF to stop the rest of the code from running.
-
   if (view === 'loading') {
     return (
       <View style={styles.container}>
@@ -109,7 +124,6 @@ export default function Login() {
     );
   }
 
-  // This is the "Home" view. It is now only reachable if view === 'home'.
   if (view === 'home') {
     return (
       <View style={styles.container}>
@@ -120,7 +134,6 @@ export default function Login() {
     );
   }
 
-  // If somehow nothing matches, show this to avoid a crash
   return (
     <View style={styles.container}>
       <Text>Something went wrong. View State: {view}</Text>

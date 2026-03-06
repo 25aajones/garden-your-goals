@@ -22,7 +22,11 @@ import GoalsScreen from "./screens/GoalsScreen";
 import AddGoalScreen from "./screens/AddGoalScreen";
 import GoalScreen from "./screens/GoalScreen";
 import ProfileScreen from "./screens/ProfileScreen";
-import AddFriendsScreen from "./screens/AddFriendsScreen"; // <-- IMPORTED HERE
+import AddFriendsScreen from "./screens/AddFriendsScreen";
+import UserProfileScreen from './screens/UserProfileScreen';
+import SettingsScreen from './screens/SettingsScreen';
+import RankScreen from './screens/RankScreen';
+import GardenScreen from './screens/GardenScreen'; // <-- 1. IMPORT GARDEN SCREEN
 
 // Helper Placeholder Screen
 function Placeholder({ title }) {
@@ -56,13 +60,31 @@ function AddStack() {
   );
 }
 
-// THE NEW PROFILE STACK
-// This tells the app that "Profile" and "AddFriends" belong together
 function ProfileStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="ProfileHome" component={ProfileScreen} />
       <Stack.Screen name="AddFriends" component={AddFriendsScreen} />
+      <Stack.Screen name="UserProfile" component={UserProfileScreen} />
+      <Stack.Screen name="Settings" component={SettingsScreen} />
+    </Stack.Navigator>
+  );
+}
+
+function RankStack() {
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="RankHome" component={RankScreen} />
+      <Stack.Screen name="UserProfile" component={UserProfileScreen} />
+    </Stack.Navigator>
+  );
+}
+
+// <-- 2. CREATE THE GARDEN STACK
+function GardenStack() {
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="GardenHome" component={GardenScreen} />
     </Stack.Navigator>
   );
 }
@@ -94,7 +116,7 @@ function MainTabs() {
             Add: focused ? "add-circle" : "add-circle-outline",
             Calendar: focused ? "calendar" : "calendar-outline",
             Garden: focused ? "flower" : "flower-outline",
-            ProfileTab: focused ? "person" : "person-outline", // Updated name
+            ProfileTab: focused ? "person" : "person-outline",
           };
           const iconName = map[route.name] ?? "ellipse-outline";
           const iconSize = route.name === "Add" ? 28 : 22;
@@ -102,18 +124,15 @@ function MainTabs() {
         },
       })}
     >
-      <Tab.Screen name="Rank" children={() => <Placeholder title="Rank (Coming Soon)" />} />
+      <Tab.Screen name="Rank" component={RankStack} options={{ tabBarLabel: "Rank" }} />
       <Tab.Screen name="Goals" component={GoalsStack} options={{ tabBarLabel: "Habits" }} />
       <Tab.Screen name="Add" component={AddStack} options={{ tabBarLabel: "Add" }} />
       <Tab.Screen name="Calendar" children={() => <Placeholder title="Calendar (Coming Soon)" />} />
-      <Tab.Screen name="Garden" children={() => <Placeholder title="Garden (Coming Soon)" />} />
       
-      {/* WIRED UP THE PROFILE STACK HERE */}
-      <Tab.Screen 
-        name="ProfileTab" 
-        component={ProfileStack} 
-        options={{ tabBarLabel: "Profile" }} 
-      />
+      {/* <-- 3. WIRE UP THE GARDEN TAB */}
+      <Tab.Screen name="Garden" component={GardenStack} options={{ tabBarLabel: "Garden" }} />
+      
+      <Tab.Screen name="ProfileTab" component={ProfileStack} options={{ tabBarLabel: "Profile" }} />
     </Tab.Navigator>
   );
 }
