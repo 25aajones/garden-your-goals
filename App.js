@@ -130,7 +130,11 @@ function MainTabs() {
       <Tab.Screen name="Calendar" children={() => <Placeholder title="Calendar (Coming Soon)" />} />
       
       {/* <-- 3. WIRE UP THE GARDEN TAB */}
-      <Tab.Screen name="Garden" component={GardenStack} options={{ tabBarLabel: "Garden" }} />
+      <Tab.Screen
+        name="Garden"
+        component={GardenStack}
+        options={{ tabBarLabel: "Garden", unmountOnBlur: false }}
+      />
       
       <Tab.Screen name="ProfileTab" component={ProfileStack} options={{ tabBarLabel: "Profile" }} />
     </Tab.Navigator>
