@@ -145,19 +145,33 @@ export default function UserProfileScreen({ route, navigation }) {
 
         {/* FOLLOW / UNFOLLOW BUTTON */}
         {currentUserId !== userId && (
-          <TouchableOpacity 
-            style={[styles.followButton, isFollowing && styles.followingButton]} 
-            onPress={toggleFollow}
-            disabled={followLoading}
-          >
-            {followLoading ? (
-              <ActivityIndicator size="small" color={isFollowing ? "#4B4B4B" : "#fff"} />
-            ) : (
-              <Text style={[styles.followButtonText, isFollowing && styles.followingButtonText]}>
-                {isFollowing ? "Following" : "Follow"}
-              </Text>
-            )}
-          </TouchableOpacity>
+            <>
+              <TouchableOpacity 
+                style={[styles.followButton, isFollowing && styles.followingButton]} 
+                onPress={toggleFollow}
+                disabled={followLoading}
+              >
+                {followLoading ? (
+                  <ActivityIndicator size="small" color={isFollowing ? "#4B4B4B" : "#fff"} />
+                ) : (
+                  <Text style={[styles.followButtonText, isFollowing && styles.followingButtonText]}>
+                    {isFollowing ? "Following" : "Follow"}
+                  </Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.viewGardenButton}
+                onPress={() => navigation.navigate("UserGarden", {
+                  userId,
+                  readOnly: true,
+                  username: profileData?.username || "User",
+                })}
+              >
+                <Ionicons name="flower-outline" size={18} color="#2D5A27" />
+                <Text style={styles.viewGardenButtonText}>View Garden</Text>
+              </TouchableOpacity>
+            </>
         )}
       </View>
 
@@ -224,6 +238,8 @@ const styles = StyleSheet.create({
   followButtonText: { color: "#fff", fontWeight: "800", fontSize: 14 },
   followingButton: { backgroundColor: "#E0F7D4", borderWidth: 2, borderColor: "#2D5A27" },
   followingButtonText: { color: "#2D5A27" },
+  viewGardenButton: { marginTop: 10, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#F4EEDC", borderWidth: 2, borderColor: "#D8C39E", paddingHorizontal: 22, paddingVertical: 10, borderRadius: 10 },
+  viewGardenButtonText: { color: "#2D5A27", fontWeight: "800", fontSize: 14 },
   
   section: { marginBottom: 24 },
   sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: 'center', marginBottom: 12 },

@@ -6,13 +6,14 @@ import {
   StyleSheet,
   TextInput,
   Pressable,
+  LayoutAnimation,
   KeyboardAvoidingView,
   Platform,
   Alert,
   UIManager,
   findNodeHandle,
   Dimensions,
-  FlatList,
+  ScrollView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons"; // Ensure this is installed
 import Page from "../components/Page";
@@ -45,7 +46,63 @@ const clampNum = (n, min, max) => {
   return Math.max(min, Math.min(max, v));
 };
 
+const toISODate = (date) => {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const addDaysISO = (days) => {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return toISODate(date);
+};
+
+const addYearsISO = (years) => {
+  const date = new Date();
+  date.setFullYear(date.getFullYear() + years);
+  return toISODate(date);
+};
+
+const formatDateInput = (text) => {
+  const digits = text.replace(/\D/g, "").slice(0, 8);
+  if (digits.length <= 4) return digits;
+  if (digits.length <= 6) return `${digits.slice(0, 4)}-${digits.slice(4)}`;
+  return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6)}`;
+};
+
+const isValidISODate = (value) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [y, m, d] = value.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  return date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === d;
+};
+
+const toStartOfDay = (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+const WEEKDAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
+
+const monthLabel = (date) =>
+  date.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+
+const buildMonthGrid = (monthDate) => {
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const firstDayWeekIndex = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const cells = [];
+  for (let i = 0; i < firstDayWeekIndex; i += 1) cells.push(null);
+  for (let day = 1; day <= daysInMonth; day += 1) cells.push(day);
+  while (cells.length < 42) cells.push(null);
+  return cells;
+};
+
 const mapDayShort = (d) => ["S", "M", "T", "W", "Th", "F", "Sa"][d] ?? "?";
+
+if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 // --- 2. OPTIMIZED ICON COMPONENT ---
 const IconItem = memo(({ iconName, isActive, onSelect }) => (
@@ -149,27 +206,11 @@ export default function AddGoalScreen({ navigation }) {
   const selectedDate = fromKey(selectedDateKey);
   const selectedDay = selectedDate.getDay();
 
-  // Added "icon" step into the array
-  const STEPS = useMemo(
-    () => [
-      { key: "seed", title: "Plant a goal", subtitle: "Give your goal a clear name so it’s easy to recognize." },
-      { key: "icon", title: "Visual identity", subtitle: "Choose an icon to represent this goal in your garden." },
-      { key: "track", title: "How will you measure growth?", subtitle: "Simple checkmark or a quantity you count." },
-      { key: "schedule", title: "When will you water it?", subtitle: "Pick the days this goal shows up." },
-      { key: "plan", title: "Make it easy", subtitle: "Attach it to a routine (optional, but powerful).", optional: true },
-      { key: "why", title: "Why does it matter?", subtitle: "A quick reason helps on low-motivation days (optional).", optional: true },
-      { key: "review", title: "Plant it", subtitle: "Review and save. You can refine later as it grows." },
-    ],
-    []
-  );
-
-  const [step, setStep] = useState(0);
-
   // Form State
   const [name, setName] = useState("");
   const [category, setCategory] = useState("Custom");
-  const [selectedIcon, setSelectedIcon] = useState("leaf"); // NEW
-  const [searchTerm, setSearchTerm] = useState(""); // NEW
+  const [selectedIcon, setSelectedIcon] = useState("leaf");
+  const [searchTerm, setSearchTerm] = useState("");
   const [type, setType] = useState("completion");
   const [target, setTarget] = useState("1");
   const [unit, setUnit] = useState("times");
@@ -178,22 +219,13 @@ export default function AddGoalScreen({ navigation }) {
   const [whenStr, setWhenStr] = useState("");
   const [whereStr, setWhereStr] = useState("");
   const [whyStr, setWhyStr] = useState("");
-
-  const [skipPlan, setSkipPlan] = useState(false);
-  const [skipWhy, setSkipWhy] = useState(false);
-
-  const [helpOpen, setHelpOpen] = useState(false);
-  const [tutorialOn, setTutorialOn] = useState(false);
-  const [tutorialIndex, setTutorialIndex] = useState(0);
-  const [spot, setSpot] = useState(null);
-
-  const seedRef = useRef(null);
-  const iconRef = useRef(null); // NEW
-  const trackRef = useRef(null);
-  const scheduleRef = useRef(null);
-  const planRef = useRef(null);
-  const whyRef = useRef(null);
-  const reviewRef = useRef(null);
+  const [completionMode, setCompletionMode] = useState("none");
+  const [completionEndDate, setCompletionEndDate] = useState("");
+  const [completionEndAmount, setCompletionEndAmount] = useState("");
+  const [completionEndUnit, setCompletionEndUnit] = useState("times");
+  const [calendarMonth, setCalendarMonth] = useState(toStartOfDay(new Date()));
+  const [calendarWidth, setCalendarWidth] = useState(0);
+  const calendarPagerRef = useRef(null);
 
   // Filtered Icons Logic
   const filteredIcons = useMemo(() => {
@@ -201,16 +233,6 @@ export default function AddGoalScreen({ navigation }) {
     if (!cleanSearch) return allIconNames.slice(0, 500); 
     return allIconNames.filter(n => n.toLowerCase().includes(cleanSearch)).slice(0, 500);
   }, [searchTerm]);
-
-  const tutorialSteps = useMemo(() => [
-    { title: "Start with a clear name", body: "Short and recognizable.", ref: seedRef, goToStep: 0 },
-    { title: "Pick an icon", body: "Something that inspires you.", ref: iconRef, goToStep: 1 },
-    { title: "Choose how you’ll track it", body: "Completion is yes/no. Quantity is counting.", ref: trackRef, goToStep: 2 },
-    { title: "Pick realistic days", body: "Consistency grows faster than intensity.", ref: scheduleRef, goToStep: 3 },
-    { title: "Routine anchors make goals stick", body: "Optional, but effective.", ref: planRef, goToStep: 4 },
-    { title: "A tiny ‘why’ keeps it alive", body: "One sentence is enough.", ref: whyRef, goToStep: 5 },
-    { title: "Plant it", body: "Review and save.", ref: reviewRef, goToStep: 6 },
-  ], []);
 
   const scheduleDays = useMemo(() => {
     if (mode === "everyday") return [0, 1, 2, 3, 4, 5, 6];
@@ -229,47 +251,129 @@ export default function AddGoalScreen({ navigation }) {
     return { target: clampNum(target, 1, 9999), unit: unit.trim() || "units" };
   }, [type, target, unit]);
 
+  const completionCondition = useMemo(() => {
+    if (completionMode === "date" && isValidISODate(completionEndDate.trim())) {
+      return { type: "date", endDate: completionEndDate.trim() };
+    }
+    if (completionMode === "amount" && Number(completionEndAmount) > 0) {
+      return {
+        type: "amount",
+        targetAmount: clampNum(completionEndAmount, 1, 999999),
+        unit: completionEndUnit.trim() || "times",
+      };
+    }
+    if (
+      completionMode === "both" &&
+      isValidISODate(completionEndDate.trim()) &&
+      Number(completionEndAmount) > 0
+    ) {
+      return {
+        type: "both",
+        endDate: completionEndDate.trim(),
+        targetAmount: clampNum(completionEndAmount, 1, 999999),
+        unit: completionEndUnit.trim() || "times",
+      };
+    }
+    return { type: "none" };
+  }, [completionMode, completionEndDate, completionEndAmount, completionEndUnit]);
+
+  const completionDateMeta = useMemo(() => {
+    if (!isValidISODate(completionEndDate.trim())) return null;
+    const [year, month, day] = completionEndDate.trim().split("-").map(Number);
+    const endDate = new Date(year, month - 1, day);
+    const today = toStartOfDay(new Date());
+    const endStart = toStartOfDay(endDate);
+    const daysLeft = Math.round((endStart.getTime() - today.getTime()) / 86400000);
+
+    return {
+      readable: endDate.toLocaleDateString(undefined, {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      }),
+      daysLeft,
+    };
+  }, [completionEndDate]);
+
+  const calendarCells = useMemo(() => buildMonthGrid(calendarMonth), [calendarMonth]);
+
+  const prevMonth = useMemo(
+    () => new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1),
+    [calendarMonth]
+  );
+  const nextMonth = useMemo(
+    () => new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1),
+    [calendarMonth]
+  );
+  const prevMonthCells = useMemo(() => buildMonthGrid(prevMonth), [prevMonth]);
+  const nextMonthCells = useMemo(() => buildMonthGrid(nextMonth), [nextMonth]);
+
+  useEffect(() => {
+    if (isValidISODate(completionEndDate.trim())) {
+      const [year, month] = completionEndDate.trim().split("-").map(Number);
+      setCalendarMonth(new Date(year, month - 1, 1));
+    }
+  }, [completionEndDate]);
+
+  useEffect(() => {
+    if (!calendarWidth || !calendarPagerRef.current) return;
+    calendarPagerRef.current.scrollTo({ x: calendarWidth, animated: false });
+  }, [calendarWidth, calendarMonth]);
+
+  const selectCalendarDay = (day) => {
+    if (!day) return;
+    const date = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), day);
+    setCompletionEndDate(toISODate(date));
+  };
+
+  const goPrevMonth = () => {
+    setCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  };
+
+  const goNextMonth = () => {
+    setCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+  };
+
+  const changeCompletionMode = (nextMode) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setCompletionMode(nextMode);
+  };
+
+  const handleCalendarScrollEnd = (event) => {
+    if (!calendarWidth) return;
+    const offsetX = event.nativeEvent.contentOffset.x;
+    const pageIndex = Math.round(offsetX / calendarWidth);
+    if (pageIndex === 0) {
+      goPrevMonth();
+    } else if (pageIndex === 2) {
+      goNextMonth();
+    }
+  };
+
   const toggleDay = (d) => setDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]));
 
-  const done = useMemo(() => {
-    const m = {};
-    m[0] = name.trim().length >= 3;
-    m[1] = !!selectedIcon;
-    m[2] = type === "completion" || (Number(target) > 0 && unit.trim().length > 0);
-    m[3] = scheduleDays.length > 0;
-    m[4] = skipPlan || whenStr.trim().length >= 2;
-    m[5] = skipWhy || whyStr.trim().length >= 4;
-    m[6] = false;
-    return m;
-  }, [name, selectedIcon, type, target, unit, scheduleDays, skipPlan, whenStr, skipWhy, whyStr]);
-
-  const stepError = useMemo(() => {
-    if (step === 0 && name.trim().length < 3) return "Give it a short name (at least 3 characters).";
-    if (step === 1 && !selectedIcon) return "Please select an icon.";
-    if (step === 2 && type === "quantity" && (!(Number(target) > 0) || unit.trim().length < 1)) return "Quantity needs a number + unit.";
-    if (step === 3 && !scheduleDays.length) return "Pick at least one day.";
-    if (step === 4 && !skipPlan && whenStr.trim().length < 2) return "Add a time anchor or skip.";
-    if (step === 5 && !skipWhy && whyStr.trim().length < 4) return "Add a short reason or skip.";
+  const formError = useMemo(() => {
+    if (name.trim().length < 3) return "Give it a short name (at least 3 characters).";
+    if (!selectedIcon) return "Please select an icon.";
+    if (type === "quantity" && (!(Number(target) > 0) || unit.trim().length < 1)) return "Quantity needs a number + unit.";
+    if (!scheduleDays.length) return "Pick at least one day.";
+    if ((completionMode === "date" || completionMode === "both") && !isValidISODate(completionEndDate.trim())) {
+      return "Enter a valid end date (YYYY-MM-DD).";
+    }
+    if ((completionMode === "date" || completionMode === "both") && completionDateMeta && completionDateMeta.daysLeft < 0) {
+      return "End date cannot be in the past.";
+    }
+    if ((completionMode === "amount" || completionMode === "both") && !(Number(completionEndAmount) > 0)) {
+      return "End amount must be greater than 0.";
+    }
     return "";
-  }, [step, name, selectedIcon, type, target, unit, scheduleDays, skipPlan, whenStr, skipWhy, whyStr]);
+  }, [name, selectedIcon, type, target, unit, scheduleDays, completionMode, completionEndDate, completionDateMeta, completionEndAmount]);
 
-  const canNext = !stepError;
-
-  const goNext = () => {
-    if (!canNext) return;
-    if (step === 3 && skipPlan) return setStep(5); // Jump past Plan
-    if (step === 4 && skipWhy) return setStep(6);  // Jump past Why
-    setStep((s) => Math.min(STEPS.length - 1, s + 1));
-  };
-
-  const goBack = () => {
-    if (step === 5 && skipPlan) return setStep(3);
-    if (step === 6 && skipWhy) return setStep(4);
-    setStep((s) => Math.max(0, s - 1));
-  };
+  const canSave = !formError;
 
   const save = async () => {
-    if (!auth.currentUser || isSaving || !canNext) return;
+    if (!auth.currentUser || isSaving || !canSave) return;
     setIsSaving(true);
     try {
       const goalData = {
@@ -280,8 +384,9 @@ export default function AddGoalScreen({ navigation }) {
         measurable: measurableForType,
         schedule: { type: mode, days: scheduleDays },
         frequencyLabel,
-        plan: { when: skipPlan ? "" : whenStr.trim(), where: whereStr.trim() },
-        why: skipWhy ? "" : whyStr.trim(),
+        completionCondition,
+        plan: { when: whenStr.trim(), where: whereStr.trim() },
+        why: whyStr.trim(),
         createdAt: serverTimestamp(),
         currentStreak: 0,
         longestStreak: 0,
@@ -304,145 +409,235 @@ export default function AddGoalScreen({ navigation }) {
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <View style={styles.headerRow}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.hTitle}>{STEPS[step].title}</Text>
-            <Text style={styles.hSub}>{STEPS[step].subtitle}</Text>
+            <Text style={styles.hTitle}>Plant a goal</Text>
+            <Text style={styles.hSub}>Fill out your goal details below.</Text>
           </View>
         </View>
 
-        <ProgressDots total={STEPS.length} index={step} done={done} />
-
-        <View style={styles.contentArea}>
-          {step === 0 && (
-            <View ref={seedRef} collapsable={false} style={styles.card}>
-              <Text style={styles.sectionLabel}>Goal name</Text>
-              <TextInput value={name} onChangeText={setName} placeholder="Example: Read" placeholderTextColor={theme.muted2} style={styles.input} />
-              <View style={styles.gap16} />
-              <Text style={styles.sectionLabel}>Category</Text>
-              <View style={styles.chipWrap}>
-                {CATEGORIES.map((c) => (
-                  <Chip key={c} label={c} active={category === c} onPress={() => setCategory(c)} />
-                ))}
-              </View>
+        <ScrollView style={styles.contentArea} contentContainerStyle={styles.formScrollContent} keyboardShouldPersistTaps="handled">
+          <View style={styles.card}>
+            <Text style={styles.sectionLabel}>Goal name</Text>
+            <TextInput value={name} onChangeText={setName} placeholder="Example: Read" placeholderTextColor={theme.muted2} style={styles.input} />
+            <View style={styles.gap16} />
+            <Text style={styles.sectionLabel}>Category</Text>
+            <View style={styles.chipWrap}>
+              {CATEGORIES.map((c) => (
+                <Chip key={c} label={c} active={category === c} onPress={() => setCategory(c)} />
+              ))}
             </View>
-          )}
+          </View>
 
-          {step === 1 && (
-            <View ref={iconRef} collapsable={false} style={[styles.card, { flex: 1 }]}>
-              <View style={styles.searchBar}>
-                <Ionicons name="search" size={18} color={theme.muted} />
-                <TextInput 
-                  value={searchTerm} 
-                  onChangeText={setSearchTerm} 
-                  placeholder="Search 3,000+ icons..." 
-                  placeholderTextColor={theme.muted2}
-                  style={styles.searchInput} 
-                  autoCapitalize="none"
-                />
-              </View>
-              <FlatList
-                data={filteredIcons}
-                keyExtractor={(item) => item}
-                numColumns={5}
-                renderItem={({ item }) => (
-                  <IconItem iconName={item} isActive={selectedIcon === item} onSelect={setSelectedIcon} />
-                )}
-                contentContainerStyle={styles.iconGrid}
-                keyboardShouldPersistTaps="handled"
-                initialNumToRender={50}
+          <View style={styles.card}>
+            <Text style={styles.sectionLabel}>Icon</Text>
+            <View style={styles.searchBar}>
+              <Ionicons name="search" size={18} color={theme.muted} />
+              <TextInput
+                value={searchTerm}
+                onChangeText={setSearchTerm}
+                placeholder="Search icons..."
+                placeholderTextColor={theme.muted2}
+                style={styles.searchInput}
+                autoCapitalize="none"
               />
             </View>
-          )}
+            <ScrollView
+              style={styles.iconList}
+              contentContainerStyle={styles.iconGrid}
+              keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled
+              showsVerticalScrollIndicator={false}
+            >
+              <View style={styles.iconGridWrap}>
+                {filteredIcons.map((item) => (
+                  <IconItem key={item} iconName={item} isActive={selectedIcon === item} onSelect={setSelectedIcon} />
+                ))}
+              </View>
+            </ScrollView>
+          </View>
 
-          {step === 2 && (
-            <View ref={trackRef} collapsable={false} style={styles.card}>
-              <Text style={styles.sectionLabel}>Tracking</Text>
-              <Segmented left={{ label: "Checkmark", value: "completion" }} right={{ label: "Quantity", value: "quantity" }} value={type} onChange={setType} />
-              {type === "quantity" && (
-                <View style={styles.row}>
-                  <TextInput value={target} onChangeText={setTarget} keyboardType="numeric" style={[styles.input, { flex: 1, marginRight: 10 }]} />
-                  <TextInput value={unit} onChangeText={setUnit} placeholder="minutes" style={[styles.input, { flex: 1 }]} />
-                </View>
-              )}
-            </View>
-          )}
-
-          {step === 3 && (
-            <View ref={scheduleRef} collapsable={false} style={styles.card}>
+          <View style={styles.card}>
+            <Text style={styles.sectionLabel}>Tracking</Text>
+            <Segmented left={{ label: "Checkmark", value: "completion" }} right={{ label: "Quantity", value: "quantity" }} value={type} onChange={setType} />
+            {type === "quantity" && (
               <View style={styles.row}>
-                <Chip label="Every day" active={mode === "everyday"} onPress={() => setMode("everyday")} />
-                <Chip label="Weekdays" active={mode === "weekdays"} onPress={() => setMode("weekdays")} />
-                <Chip label="Custom" active={mode === "days"} onPress={() => setMode("days")} />
+                <TextInput value={target} onChangeText={setTarget} keyboardType="numeric" style={[styles.input, { flex: 1, marginRight: 10 }]} />
+                <TextInput value={unit} onChangeText={setUnit} placeholder="minutes" style={[styles.input, { flex: 1 }]} />
               </View>
-              {mode === "days" && (
-                <View style={styles.daysGrid}>
-                  {DAYS.map((d) => (
-                    <Pressable key={d.label} onPress={() => toggleDay(d.day)} style={[styles.dayPill, days.includes(d.day) && styles.dayPillActive]}>
-                      <Text style={[styles.dayText, days.includes(d.day) && styles.dayTextActive]}>{d.label}</Text>
-                    </Pressable>
-                  ))}
+            )}
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.sectionLabel}>Schedule</Text>
+            <View style={styles.row}>
+              <Chip label="Every day" active={mode === "everyday"} onPress={() => setMode("everyday")} />
+              <Chip label="Weekdays" active={mode === "weekdays"} onPress={() => setMode("weekdays")} />
+              <Chip label="Custom" active={mode === "days"} onPress={() => setMode("days")} />
+            </View>
+            {mode === "days" && (
+              <View style={styles.daysGrid}>
+                {DAYS.map((d) => (
+                  <Pressable key={d.label} onPress={() => toggleDay(d.day)} style={[styles.dayPill, days.includes(d.day) && styles.dayPillActive]}>
+                    <Text style={[styles.dayText, days.includes(d.day) && styles.dayTextActive]}>{d.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.sectionLabel}>Plan (optional)</Text>
+            <TextInput value={whenStr} onChangeText={setWhenStr} placeholder="After breakfast..." style={styles.input} />
+            <View style={styles.gap16} />
+            <TextInput value={whereStr} onChangeText={setWhereStr} placeholder="At home..." style={styles.input} />
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.sectionLabel}>Why (optional)</Text>
+            <TextInput value={whyStr} onChangeText={setWhyStr} placeholder="One sentence..." style={[styles.input, styles.textArea]} multiline />
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.sectionLabel}>Goal completion</Text>
+            <View style={styles.completionModeRow}>
+              <Chip label="No end" active={completionMode === "none"} onPress={() => changeCompletionMode("none")} />
+              <Chip label="End date" active={completionMode === "date"} onPress={() => changeCompletionMode("date")} />
+              <Chip label="End amount" active={completionMode === "amount"} onPress={() => changeCompletionMode("amount")} />
+              <Chip label="Both" active={completionMode === "both"} onPress={() => changeCompletionMode("both")} />
+            </View>
+
+            {(completionMode === "date" || completionMode === "both") && (
+              <>
+                <Text style={styles.helperText}>Swipe the calendar left/right to move by month.</Text>
+                <View style={styles.calendarCard}>
+                  <ScrollView
+                    ref={calendarPagerRef}
+                    horizontal
+                    pagingEnabled
+                    showsHorizontalScrollIndicator={false}
+                    bounces={false}
+                    onLayout={(e) => setCalendarWidth(e.nativeEvent.layout.width)}
+                    onMomentumScrollEnd={handleCalendarScrollEnd}
+                    scrollEventThrottle={16}
+                  >
+                    {[{ month: prevMonth, cells: prevMonthCells }, { month: calendarMonth, cells: calendarCells }, { month: nextMonth, cells: nextMonthCells }].map((entry, pageIdx) => (
+                      <View key={`${entry.month.getFullYear()}-${entry.month.getMonth()}-${pageIdx}`} style={[styles.calendarPage, { width: calendarWidth || undefined }]}> 
+                        <View style={styles.calendarHeader}>
+                          <Text style={styles.calendarHeaderText}>{monthLabel(entry.month)}</Text>
+                        </View>
+
+                        <View style={styles.calendarWeekHeader}>
+                          {WEEKDAY_LABELS.map((label, idx) => (
+                            <Text key={`${label}-${idx}`} style={styles.calendarWeekHeaderText}>{label}</Text>
+                          ))}
+                        </View>
+
+                        <View style={styles.calendarGrid}>
+                          {entry.cells.map((day, idx) => {
+                            const dayDate = day
+                              ? new Date(entry.month.getFullYear(), entry.month.getMonth(), day)
+                              : null;
+                            const todayStart = toStartOfDay(new Date());
+                            const isToday = !!dayDate && toStartOfDay(dayDate).getTime() === todayStart.getTime();
+                            const isPast = !!dayDate && toStartOfDay(dayDate).getTime() < todayStart.getTime();
+                            const isSelected =
+                              !!day &&
+                              completionEndDate ===
+                                toISODate(new Date(entry.month.getFullYear(), entry.month.getMonth(), day));
+
+                            return (
+                              <Pressable
+                                key={`${pageIdx}-${idx}-${day || "blank"}`}
+                                onPress={() => day && setCompletionEndDate(toISODate(new Date(entry.month.getFullYear(), entry.month.getMonth(), day)))}
+                                disabled={!day}
+                                style={[
+                                  styles.calendarCell,
+                                  isPast && styles.calendarCellPast,
+                                  isToday && styles.calendarCellToday,
+                                  isSelected && styles.calendarCellSelected,
+                                  !day && styles.calendarCellEmpty,
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    styles.calendarCellText,
+                                    isPast && styles.calendarCellTextPast,
+                                    isSelected && styles.calendarCellTextSelected,
+                                  ]}
+                                >
+                                  {day || ""}
+                                </Text>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                      </View>
+                    ))}
+                  </ScrollView>
                 </View>
-              )}
-              <View style={styles.gap16} />
-              <View style={styles.skipRow}>
-                <Pressable onPress={() => setSkipPlan(!skipPlan)} style={[styles.skipToggle, skipPlan && styles.skipToggleOn]}>
-                  <Text style={[styles.skipText, skipPlan && styles.skipTextOn]}>{skipPlan ? "Plan skipped" : "Skip plan step"}</Text>
-                </Pressable>
-                <Pressable onPress={() => setSkipWhy(!skipWhy)} style={[styles.skipToggle, skipWhy && styles.skipToggleOn]}>
-                  <Text style={[styles.skipText, skipWhy && styles.skipTextOn]}>{skipWhy ? "Why skipped" : "Skip why step"}</Text>
-                </Pressable>
+
+                <TextInput
+                  value={completionEndDate}
+                  onChangeText={(text) => setCompletionEndDate(formatDateInput(text))}
+                  placeholder="YYYY-MM-DD"
+                  keyboardType="number-pad"
+                  maxLength={10}
+                  style={[styles.input, styles.completionInput]}
+                />
+                {!!completionDateMeta && (
+                  <View style={styles.datePreviewBox}>
+                    <Text style={styles.datePreviewText}>
+                      Ends {completionDateMeta.readable}
+                      {completionDateMeta.daysLeft === 0
+                        ? " (today)"
+                        : completionDateMeta.daysLeft > 0
+                        ? ` (${completionDateMeta.daysLeft} days left)`
+                        : ` (${Math.abs(completionDateMeta.daysLeft)} days ago)`}
+                    </Text>
+                  </View>
+                )}
+              </>
+            )}
+
+            {(completionMode === "amount" || completionMode === "both") && (
+              <View style={styles.row}>
+                <TextInput
+                  value={completionEndAmount}
+                  onChangeText={setCompletionEndAmount}
+                  keyboardType="numeric"
+                  placeholder="Total amount"
+                  style={[styles.input, styles.completionInput, { flex: 1, marginRight: 10 }]}
+                />
+                <TextInput
+                  value={completionEndUnit}
+                  onChangeText={setCompletionEndUnit}
+                  placeholder="times"
+                  style={[styles.input, styles.completionInput, { flex: 1 }]}
+                />
               </View>
-            </View>
-          )}
+            )}
+          </View>
 
-          {step === 4 && (
-            <View ref={planRef} collapsable={false} style={styles.card}>
-              <Text style={styles.sectionLabel}>Time anchor</Text>
-              <TextInput value={whenStr} onChangeText={setWhenStr} placeholder="After breakfast..." style={styles.input} />
-              <View style={styles.gap16} />
-              <Text style={styles.sectionLabel}>Place</Text>
-              <TextInput value={whereStr} onChangeText={setWhereStr} placeholder="At home..." style={styles.input} />
-              <Pressable onPress={() => { setSkipPlan(true); setStep(5); }} style={styles.inlineLink}>
-                <Text style={styles.inlineLinkText}>Skip this step</Text>
-              </Pressable>
-            </View>
-          )}
+          <View style={styles.card}>
+            <View style={styles.reviewRow}><Text style={styles.reviewLabel}>Icon</Text><Ionicons name={selectedIcon} size={22} color={theme.accent} /></View>
+            <View style={styles.reviewRow}><Text style={styles.reviewLabel}>Name</Text><Text style={styles.reviewValue}>{name || "—"}</Text></View>
+            <View style={styles.reviewRow}><Text style={styles.reviewLabel}>Schedule</Text><Text style={styles.reviewValue}>{frequencyLabel}</Text></View>
+          </View>
 
-          {step === 5 && (
-            <View ref={whyRef} collapsable={false} style={styles.card}>
-              <Text style={styles.sectionLabel}>Your reason</Text>
-              <TextInput value={whyStr} onChangeText={setWhyStr} placeholder="One sentence..." style={[styles.input, styles.textArea]} multiline />
-              <Pressable onPress={() => { setSkipWhy(true); setStep(6); }} style={styles.inlineLink}>
-                <Text style={styles.inlineLinkText}>Skip this step</Text>
-              </Pressable>
-            </View>
-          )}
-
-          {step === 6 && (
-            <View ref={reviewRef} collapsable={false} style={styles.card}>
-              <View style={styles.reviewRow}>
-                <Text style={styles.reviewLabel}>Icon</Text>
-                <Ionicons name={selectedIcon} size={22} color={theme.accent} />
-              </View>
-              <View style={styles.reviewRow}><Text style={styles.reviewLabel}>Name</Text><Text style={styles.reviewValue}>{name}</Text></View>
-              <View style={styles.reviewRow}><Text style={styles.reviewLabel}>Schedule</Text><Text style={styles.reviewValue}>{frequencyLabel}</Text></View>
-            </View>
-          )}
-
-          {!!stepError && step !== 6 && (
+          {!!formError && (
             <View style={styles.errorInline}>
-              <Text style={styles.errorInlineText}>{stepError}</Text>
+              <Text style={styles.errorInlineText}>{formError}</Text>
             </View>
           )}
-        </View>
+        </ScrollView>
 
         <View style={styles.footer}>
-          <Button variant="secondary" label="Back" onPress={goBack} disabled={step === 0 || isSaving} />
+          <Button variant="secondary" label="Cancel" onPress={() => navigation.goBack()} disabled={isSaving} />
           <View style={{ width: 10 }} />
           <Button
             variant="primary"
-            label={isSaving ? "Saving..." : step === 6 ? "Save Goal" : "Next"}
-            onPress={step === 6 ? save : goNext}
-            disabled={isSaving || !canNext}
+            label={isSaving ? "Saving..." : "Save Goal"}
+            onPress={save}
+            disabled={isSaving || !canSave}
           />
         </View>
       </KeyboardAvoidingView>
@@ -451,9 +646,24 @@ export default function AddGoalScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  btnBase: { height: 48, borderRadius: theme.radius, alignItems: "center", justifyContent: "center", flex: 1 },
-  btnPrimary: { backgroundColor: theme.text },
-  btnSecondary: { backgroundColor: theme.surface },
+  btnBase: {
+    height: 50,
+    borderRadius: theme.radius,
+    alignItems: "center",
+    justifyContent: "center",
+    flex: 1,
+    borderWidth: 1,
+    borderColor: "transparent",
+  },
+  btnPrimary: {
+    backgroundColor: theme.text,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.18,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  btnSecondary: { backgroundColor: theme.surface, borderColor: theme.outline },
   btnTextBase: { fontSize: 16, fontWeight: "800" },
   btnTextPrimary: { color: theme.bg },
   btnTextSecondary: { color: theme.text },
@@ -465,9 +675,51 @@ const styles = StyleSheet.create({
   dotDone: { backgroundColor: theme.text2 },
   dotActive: { backgroundColor: theme.accent },
   contentArea: { flex: 1 },
+  formScrollContent: { paddingBottom: 12 },
   card: { backgroundColor: theme.surface, borderRadius: theme.radius, padding: 16, marginBottom: 10 },
-  footer: { flexDirection: "row", paddingTop: 10, paddingBottom: 6 },
+  footer: { flexDirection: "row", paddingTop: 10, paddingBottom: 8 },
   sectionLabel: { fontSize: 13, fontWeight: "800", color: theme.text, marginBottom: 6 },
+  helperText: { fontSize: 12, color: theme.muted, marginBottom: 8 },
+  completionModeRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 8, marginBottom: 10 },
+  calendarCard: {
+    backgroundColor: theme.surface2,
+    borderRadius: theme.radius,
+    padding: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: theme.outline,
+  },
+  calendarHeader: {
+    alignItems: "center",
+    marginBottom: 10,
+    paddingBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.outline,
+  },
+  calendarHeaderText: { fontSize: 15, fontWeight: "800", color: theme.text },
+  calendarWeekHeader: { flexDirection: "row", marginBottom: 8 },
+  calendarWeekHeaderText: { flex: 1, textAlign: "center", fontSize: 11, color: theme.muted, fontWeight: "700" },
+  calendarPage: { paddingHorizontal: 2, minHeight: 318 },
+  calendarGrid: { flexDirection: "row", flexWrap: "wrap" },
+  calendarCell: {
+    width: `${100 / 7}%`,
+    aspectRatio: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 8,
+    marginBottom: 6,
+  },
+  calendarCellEmpty: { opacity: 0 },
+  calendarCellPast: { opacity: 0.55 },
+  calendarCellToday: { borderWidth: 1, borderColor: theme.accent },
+  calendarCellSelected: { backgroundColor: theme.accent, borderWidth: 0 },
+  calendarCellText: { fontSize: 12, color: theme.text, fontWeight: "700" },
+  calendarCellTextPast: { color: theme.muted },
+  calendarCellTextSelected: { color: theme.bg },
+  calendarQuickActions: { flexDirection: "row", flexWrap: "wrap", marginTop: 10, gap: 10 },
+  datePreviewBox: { marginTop: 10, backgroundColor: theme.surface2, borderRadius: theme.radius, padding: 10 },
+  datePreviewText: { fontSize: 12, color: theme.text, fontWeight: "700" },
+  completionInput: { marginTop: 2 },
   input: { backgroundColor: theme.surface2, borderRadius: theme.radius, paddingHorizontal: 14, height: 46, fontSize: 14, color: theme.text },
   textArea: { height: 96, paddingTop: 12, textAlignVertical: "top" },
   gap16: { height: 16 },
@@ -489,7 +741,9 @@ const styles = StyleSheet.create({
   dayTextActive: { color: theme.bg },
   searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.surface2, borderRadius: 12, paddingHorizontal: 12, height: 45, marginBottom: 10 },
   searchInput: { flex: 1, marginLeft: 8, fontSize: 14, color: theme.text },
+  iconList: { maxHeight: 260 },
   iconGrid: { paddingBottom: 20 },
+  iconGridWrap: { flexDirection: 'row', flexWrap: 'wrap' },
   iconBox: { width: `${100 / 5}%`, aspectRatio: 1, alignItems: 'center', justifyContent: 'center', borderRadius: 12 },
   iconBoxActive: { backgroundColor: theme.accent, elevation: 4 },
   reviewRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.surface2 },

@@ -1,9 +1,10 @@
 import React, { useMemo, useState, useEffect } from "react";
-import { View, Text, StyleSheet, Pressable, FlatList, ActivityIndicator, Alert } from "react-native";
+import { View, Text, StyleSheet, Pressable, FlatList, ActivityIndicator, Alert, Image } from "react-native";
 import Page from "../components/Page";
 import { theme } from "../theme";
-import { useGoals, fromKey, toKey, isScheduledOn, isWithinActiveRange } from "../components/GoalsStore";
+import { toKey, isScheduledOn, isWithinActiveRange } from "../components/GoalsStore";
 import { ACHIEVEMENTS } from "../AchievementsStore";
+import { PLANT_ASSETS } from "../constants/PlantAssets";
 
 // Added 'increment' to the list of imports - essential for plant growth!
 import { 
@@ -13,43 +14,115 @@ import {
   doc, 
   updateDoc, 
   getDoc, 
+  getDocs,
+  setDoc,
   arrayUnion, 
   increment 
 } from "firebase/firestore";
 import { auth, db } from "../firebaseConfig";
 
-const DAYS = [
-  { label: "SUN", day: 0 }, { label: "MON", day: 1 }, { label: "TUE", day: 2 },
-  { label: "WED", day: 3 }, { label: "THU", day: 4 }, { label: "FRI", day: 5 }, { label: "SAT", day: 6 },
-];
+const STORAGE_PAGE_ID = "storage";
+const STORAGE_SHELF_COUNT = 10;
+const STORAGE_SHELF_SLOTS = 4;
 
-function startOfWeek(date = new Date()) {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() - d.getDay());
-  return d;
+const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function formatSchedule(goal) {
+  const schedule = goal?.schedule;
+  if (!schedule) return "No schedule";
+  if (schedule.type === "everyday") return "Every day";
+  if (schedule.type === "weekdays") return "Weekdays";
+  if (schedule.type === "days") {
+    const labels = (schedule.days || []).map((day) => DAY_LABELS[day]).filter(Boolean);
+    return labels.length ? labels.join(", ") : "Custom days";
+  }
+  return "Custom schedule";
 }
 
-function weekDates(date = new Date()) {
-  const start = startOfWeek(date);
-  return Array.from({ length: 7 }, (_, i) => {
-    const x = new Date(start);
-    x.setDate(start.getDate() + i);
-    return x;
-  });
+function getPlantPreviewAsset(goal) {
+  const total = Number(goal?.totalCompletions) || 0;
+
+  let stage = "stage1";
+  if (total > 30) stage = "stage4";
+  else if (total > 15) stage = "stage3";
+  else if (total > 5) stage = "stage2";
+
+  const status = goal?.healthLevel === 1 ? "dead" : "alive";
+  const species = goal?.plantSpecies || (goal?.type !== "completion" && goal?.type !== "quantity" ? goal?.type : "fern");
+
+  return (
+    PLANT_ASSETS[species]?.[stage]?.[status] ||
+    PLANT_ASSETS.fern?.stage1?.alive
+  );
 }
 
 function Droplet({ filled }) {
   return <View style={[styles.droplet, filled ? styles.dropletFilled : styles.dropletOutline]} />;
 }
 
+function isGoalDoneForDate(goal, dateKey) {
+  if (goal.type === "completion") {
+    return !!goal.logs?.completion?.[dateKey]?.done;
+  }
+
+  return (goal.logs?.quantity?.[dateKey]?.value ?? 0) >= (goal.measurable?.target ?? 0);
+}
+
+function parseISODateAtStart(value) {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  date.setHours(0, 0, 0, 0);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function isGoalFullyCompleted(goal, today = new Date()) {
+  const completionType = goal?.completionCondition?.type || "none";
+  const totalCompletions = Number(goal?.totalCompletions) || 0;
+  const targetAmount = Number(goal?.completionCondition?.targetAmount) || 0;
+
+  const todayStart = new Date(today);
+  todayStart.setHours(0, 0, 0, 0);
+
+  const endDate = parseISODateAtStart(goal?.completionCondition?.endDate);
+  const reachedEndDate = !!endDate && todayStart.getTime() > endDate.getTime();
+  const reachedEndAmount = targetAmount > 0 && totalCompletions >= targetAmount;
+
+  if (completionType === "date") return reachedEndDate;
+  if (completionType === "amount") return reachedEndAmount;
+  if (completionType === "both") return reachedEndDate && reachedEndAmount;
+  return false;
+}
+
+async function findFirstOpenStorageSlot(uid, goalId) {
+  const layoutSnap = await getDocs(collection(db, "users", uid, "gardenLayout"));
+  const occupied = new Set();
+
+  layoutSnap.forEach((layoutDoc) => {
+    if (layoutDoc.id === goalId) return;
+    const shelfPosition = layoutDoc.data()?.shelfPosition;
+    if (shelfPosition?.pageId === STORAGE_PAGE_ID) {
+      occupied.add(`${shelfPosition.shelfName}_${shelfPosition.slotIndex}`);
+    }
+  });
+
+  for (let shelfIdx = 0; shelfIdx < STORAGE_SHELF_COUNT; shelfIdx += 1) {
+    const shelfName = `storageShelf_${shelfIdx}`;
+    for (let slotIndex = 0; slotIndex < STORAGE_SHELF_SLOTS; slotIndex += 1) {
+      const key = `${shelfName}_${slotIndex}`;
+      if (!occupied.has(key)) {
+        return { pageId: STORAGE_PAGE_ID, shelfName, slotIndex };
+      }
+    }
+  }
+
+  return null;
+}
+
 export default function GoalsScreen({ navigation }) {
-  const { selectedDateKey, setSelectedDateKey } = useGoals();
   const [dbGoals, setDbGoals] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const selectedDate = fromKey(selectedDateKey);
-  const week = useMemo(() => weekDates(selectedDate), [selectedDateKey]);
   const today = new Date();
   const todayKey = toKey(today);
 
@@ -70,9 +143,9 @@ export default function GoalsScreen({ navigation }) {
 
   const filtered = useMemo(() => {
     return dbGoals
-      .filter((g) => isWithinActiveRange(g, selectedDate))
-      .filter((g) => isScheduledOn(g, selectedDate));
-  }, [dbGoals, selectedDateKey]);
+      .filter((g) => isWithinActiveRange(g, today))
+      .filter((g) => !isGoalFullyCompleted(g, today));
+  }, [dbGoals, todayKey]);
 
   const calculateStreak = (goal, newLogs) => {
     let current = 0;
@@ -152,6 +225,11 @@ export default function GoalsScreen({ navigation }) {
     if (!auth.currentUser) return;
 
     try {
+      const willBeDone = !isCurrentlyDone;
+      const shouldArchiveToStorage =
+        willBeDone &&
+        (item.completionCondition?.type === "date" || item.completionCondition?.type === "both");
+
       const goalRef = doc(db, "users", auth.currentUser.uid, "goals", item.id);
       
       // 1. Deep copy logs to calculate new streaks locally
@@ -162,11 +240,11 @@ export default function GoalsScreen({ navigation }) {
 
       if (item.type === "completion") {
         if (!updatedLogs.completion) updatedLogs.completion = {};
-        updatedLogs.completion[selectedDateKey] = { done: !isCurrentlyDone };
+        updatedLogs.completion[todayKey] = { done: !isCurrentlyDone };
       } else {
         if (!updatedLogs.quantity) updatedLogs.quantity = {};
         const targetValue = item.measurable?.target || 1;
-        updatedLogs.quantity[selectedDateKey] = { value: isCurrentlyDone ? 0 : targetValue };
+        updatedLogs.quantity[todayKey] = { value: isCurrentlyDone ? 0 : targetValue };
       }
 
       // 3. Calculate streak based on the hypothetical change
@@ -182,14 +260,25 @@ export default function GoalsScreen({ navigation }) {
 
       // 5. Add the dynamic path for the specific log date
       if (item.type === "completion") {
-        updateData[`logs.completion.${selectedDateKey}.done`] = !isCurrentlyDone;
+        updateData[`logs.completion.${todayKey}.done`] = !isCurrentlyDone;
       } else {
         const targetValue = item.measurable?.target || 1;
-        updateData[`logs.quantity.${selectedDateKey}.value`] = isCurrentlyDone ? 0 : targetValue;
+        updateData[`logs.quantity.${todayKey}.value`] = isCurrentlyDone ? 0 : targetValue;
       }
 
       // 6. Push to Firestore
       await updateDoc(goalRef, updateData);
+
+      if (shouldArchiveToStorage) {
+        const storageSlot = await findFirstOpenStorageSlot(auth.currentUser.uid, item.id);
+        if (storageSlot) {
+          await setDoc(
+            doc(db, "users", auth.currentUser.uid, "gardenLayout", item.id),
+            { shelfPosition: storageSlot },
+            { merge: true }
+          );
+        }
+      }
 
       // 7. Check App-wide streaks/achievements only if marking as DONE
       if (!isCurrentlyDone) {
@@ -207,30 +296,6 @@ export default function GoalsScreen({ navigation }) {
     <Page>
       <View style={styles.headerRow}>
         <Text style={styles.headerTitle}>Goals</Text>
-        <View style={styles.headerIcons}>
-          <View style={styles.headerIcon} />
-          <View style={styles.headerIcon} />
-        </View>
-      </View>
-
-      <View style={styles.dayStrip}>
-        {DAYS.map((d, idx) => {
-          const dateObj = week[idx];
-          const key = toKey(dateObj);
-          const isSelected = key === selectedDateKey;
-          const isToday = key === todayKey;
-
-          return (
-            <Pressable
-              key={key}
-              onPress={() => setSelectedDateKey(key)}
-              style={[styles.dayPill, isSelected && styles.dayPillActive, isToday && styles.dayPillTodayOutline]}
-            >
-              <Text style={[styles.dayLabel, isSelected && styles.dayLabelActive]}>{d.label}</Text>
-              <Text style={[styles.dayNum, isSelected && styles.dayNumActive]}>{dateObj.getDate()}</Text>
-            </Pressable>
-          );
-        })}
       </View>
 
       {loading ? (
@@ -241,22 +306,23 @@ export default function GoalsScreen({ navigation }) {
           keyExtractor={(item) => item.id}
           contentContainerStyle={{ paddingBottom: 24 }}
           renderItem={({ item }) => {
-            const done = item.type === "completion"
-                ? !!item.logs?.completion?.[selectedDateKey]?.done
-                : (item.logs?.quantity?.[selectedDateKey]?.value ?? 0) >= (item.measurable?.target ?? 0);
+            const dueToday = isScheduledOn(item, today);
+            const done = isGoalDoneForDate(item, todayKey);
+
+            const scheduleText = formatSchedule(item);
 
             return (
               <Pressable 
-                style={styles.goalCard} 
+                style={[styles.goalCard, !dueToday && styles.goalCardMuted]} 
                 onPress={() => navigation.navigate("Goal", { goalId: item.id })}
               >
-                <View style={styles.leftIcon} />
+                <View style={styles.leftIcon}>
+                  <Image source={getPlantPreviewAsset(item)} style={styles.leftIconImage} resizeMode="contain" />
+                </View>
                 <View style={styles.textWrap}>
                   <Text style={styles.title} numberOfLines={1}>{item.name}</Text>
                   <Text style={styles.sub} numberOfLines={1}>
-                    {item.type === "quantity" 
-                      ? `${item.measurable?.target} ${item.measurable?.unit}` 
-                      : "Daily Goal"}
+                    {scheduleText}
                   </Text>
                 </View>
 
@@ -287,18 +353,10 @@ export default function GoalsScreen({ navigation }) {
 const styles = StyleSheet.create({
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
   headerTitle: { fontSize: 20, fontWeight: "900", color: theme.title },
-  headerIcons: { flexDirection: "row" },
-  headerIcon: { width: 18, height: 18, borderRadius: 6, backgroundColor: theme.surface, marginLeft: 10 },
-  dayStrip: { flexDirection: "row", justifyContent: "space-between", marginBottom: 14 },
-  dayPill: { width: 42, height: 46, borderRadius: theme.radiusSm, backgroundColor: theme.surface, alignItems: "center", justifyContent: "center" },
-  dayPillActive: { backgroundColor: theme.accent },
-  dayPillTodayOutline: { borderWidth: 2, borderColor: theme.outline },
-  dayLabel: { fontSize: 10, fontWeight: "900", color: theme.muted },
-  dayNum: { marginTop: 2, fontSize: 12, fontWeight: "900", color: theme.muted },
-  dayLabelActive: { color: theme.bg },
-  dayNumActive: { color: theme.bg },
   goalCard: { flexDirection: "row", alignItems: "center", backgroundColor: theme.card, borderRadius: theme.radius, paddingHorizontal: 12, height: 74, marginBottom: 12 },
+  goalCardMuted: { opacity: 0.45 },
   leftIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: theme.accent, marginRight: 12 },
+  leftIconImage: { width: 34, height: 34, alignSelf: "center", marginTop: 5 },
   textWrap: { flex: 1 },
   title: { fontSize: 14, fontWeight: "900", color: theme.text },
   sub: { marginTop: 2, fontSize: 12, fontWeight: "800", color: theme.text2 },

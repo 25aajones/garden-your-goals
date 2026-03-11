@@ -24,6 +24,7 @@ import GoalScreen from "./screens/GoalScreen";
 import ProfileScreen from "./screens/ProfileScreen";
 import AddFriendsScreen from "./screens/AddFriendsScreen";
 import UserProfileScreen from './screens/UserProfileScreen';
+import UserGardenScreen from './screens/UserGardenScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import RankScreen from './screens/RankScreen';
 import GardenScreen from './screens/GardenScreen'; // <-- 1. IMPORT GARDEN SCREEN
@@ -66,6 +67,7 @@ function ProfileStack() {
       <Stack.Screen name="ProfileHome" component={ProfileScreen} />
       <Stack.Screen name="AddFriends" component={AddFriendsScreen} />
       <Stack.Screen name="UserProfile" component={UserProfileScreen} />
+      <Stack.Screen name="UserGarden" component={UserGardenScreen} />
       <Stack.Screen name="Settings" component={SettingsScreen} />
     </Stack.Navigator>
   );
@@ -76,6 +78,7 @@ function RankStack() {
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="RankHome" component={RankScreen} />
       <Stack.Screen name="UserProfile" component={UserProfileScreen} />
+      <Stack.Screen name="UserGarden" component={UserGardenScreen} />
     </Stack.Navigator>
   );
 }
