@@ -2,34 +2,77 @@
 import React, { useState, useCallback } from "react";
 import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
-import { collection, query, orderBy, limit, getDocs } from "firebase/firestore";
+import { collection, query, orderBy, limit, getDocs, doc, getDoc } from "firebase/firestore";
 import { auth, db } from "../firebaseConfig";
 import { theme } from "../theme";
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
+
+const FILTERS = [
+  { key: "global", label: "Global" },
+  { key: "followers", label: "Followers" },
+  { key: "following", label: "Following" },
+];
 
 export default function RankScreen({ navigation }) {
   const [leaderboard, setLeaderboard] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [activeFilter, setActiveFilter] = useState("global");
 
   useFocusEffect(
     useCallback(() => {
-      fetchLeaderboard();
-    }, [])
+      fetchLeaderboard(activeFilter);
+    }, [activeFilter])
   );
 
-  const fetchLeaderboard = async () => {
+  const fetchLeaderboard = async (filter = "global") => {
     setLoading(true);
     try {
-      // Fetch top 50 users ordered by overallScore descending
-      const usersRef = collection(db, "users");
-      const q = query(usersRef, orderBy("overallScore", "desc"), limit(50));
-      const querySnapshot = await getDocs(q);
+      if (filter === "global") {
+        const usersRef = collection(db, "users");
+        const q = query(usersRef, orderBy("overallScore", "desc"), limit(50));
+        const querySnapshot = await getDocs(q);
 
-      const rankedUsers = querySnapshot.docs.map((doc, index) => ({
-        id: doc.id,
-        rank: index + 1,
-        ...doc.data(),
-      }));
+        const rankedUsers = querySnapshot.docs.map((userDoc, index) => ({
+          id: userDoc.id,
+          rank: index + 1,
+          ...userDoc.data(),
+        }));
+
+        setLeaderboard(rankedUsers);
+        return;
+      }
+
+      const currentUid = auth.currentUser?.uid;
+      if (!currentUid) {
+        setLeaderboard([]);
+        return;
+      }
+
+      const relationCollection = filter === "followers" ? "followers" : "following";
+      const relationSnap = await getDocs(collection(db, "users", currentUid, relationCollection));
+      const relationIds = Array.from(
+        new Set(
+          relationSnap.docs
+            .map((relationDoc) => relationDoc.id || relationDoc.data()?.uid)
+            .filter(Boolean)
+        )
+      );
+
+      if (relationIds.length === 0) {
+        setLeaderboard([]);
+        return;
+      }
+
+      const userDocs = await Promise.all(
+        relationIds.map((uid) => getDoc(doc(db, "users", uid)))
+      );
+
+      const rankedUsers = userDocs
+        .filter((userDoc) => userDoc.exists())
+        .map((userDoc) => ({ id: userDoc.id, ...userDoc.data() }))
+        .sort((a, b) => (Number(b.overallScore) || 0) - (Number(a.overallScore) || 0))
+        .slice(0, 50)
+        .map((user, index) => ({ ...user, rank: index + 1 }));
 
       setLeaderboard(rankedUsers);
     } catch (error) {
@@ -38,6 +81,20 @@ export default function RankScreen({ navigation }) {
       setLoading(false);
     }
   };
+
+  const leaderboardTitle =
+    activeFilter === "global"
+      ? "Global Leaderboard"
+      : activeFilter === "followers"
+        ? "Followers Leaderboard"
+        : "Following Leaderboard";
+
+  const emptyMessage =
+    activeFilter === "global"
+      ? "No ranked users yet. Be the first!"
+      : activeFilter === "followers"
+        ? "No followers to rank yet."
+        : "No following users to rank yet.";
 
   const renderRankIcon = (rank) => {
     if (rank === 1) return <Text style={styles.medal}>🥇</Text>;
@@ -83,8 +140,24 @@ export default function RankScreen({ navigation }) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Global Leaderboard</Text>
+        <Text style={styles.headerTitle}>{leaderboardTitle}</Text>
         <Text style={styles.headerSubtitle}>Top 50</Text>
+
+        <View style={styles.filterRow}>
+          {FILTERS.map((filter) => {
+            const isActive = activeFilter === filter.key;
+            return (
+              <TouchableOpacity
+                key={filter.key}
+                style={[styles.filterChip, isActive && styles.filterChipActive]}
+                onPress={() => setActiveFilter(filter.key)}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>{filter.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
       </View>
 
       {loading ? (
@@ -99,7 +172,7 @@ export default function RankScreen({ navigation }) {
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={
-            <Text style={styles.emptyText}>No ranked users yet. Be the first!</Text>
+            <Text style={styles.emptyText}>{emptyMessage}</Text>
           }
         />
       )}
@@ -122,6 +195,31 @@ const styles = StyleSheet.create({
   },
   headerTitle: { fontSize: 24, fontWeight: "900", color: "#2D5A27" },
   headerSubtitle: { fontSize: 14, color: "#888", fontWeight: "700", marginTop: 4 },
+  filterRow: {
+    marginTop: 14,
+    flexDirection: "row",
+    gap: 8,
+  },
+  filterChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#D8D8D8",
+    backgroundColor: "#F5F5F5",
+  },
+  filterChipActive: {
+    backgroundColor: "#2D5A27",
+    borderColor: "#2D5A27",
+  },
+  filterChipText: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#666",
+  },
+  filterChipTextActive: {
+    color: "#fff",
+  },
   
   listContent: { padding: 16, paddingBottom: 40 },
   

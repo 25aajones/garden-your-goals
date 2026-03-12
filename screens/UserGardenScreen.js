@@ -15,50 +15,150 @@ import {
 } from "react-native";
 import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "../firebaseConfig";
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
+import * as LucideIcons from "lucide-react-native/icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { PLANT_ASSETS } from "../constants/PlantAssets";
 
 const FAR_BG = require("../assets/far_background.png");
 const GARDEN_BG = require("../assets/garden_BG.png");
 const STORAGE_PAGE_ID = "storage";
+const CONTENT_TOP_OFFSET = 132;
+const toPascalCase = (value) =>
+  String(value || "")
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join("");
+
+const SUPPORTED_MCI_ICONS = new Set(["run-fast"]);
+const isMciIconName = (name) => typeof name === "string" && name.startsWith("mci:");
+const getMciName = (name) => String(name || "").slice(4);
+
+const LEGACY_ICON_TO_LUCIDE = {
+  leaf: "sprout",
+  "leaf-outline": "sprout",
+  "code-slash": "code",
+};
+
+function normalizeGoalIconName(name, fallback = "target") {
+  if (!name || typeof name !== "string") return fallback;
+  if (isMciIconName(name) && SUPPORTED_MCI_ICONS.has(getMciName(name))) return name;
+  const mapped = LEGACY_ICON_TO_LUCIDE[name] || name;
+  return LucideIcons[toPascalCase(mapped)] ? mapped : fallback;
+}
+
+function GoalIcon({ name, size, color }) {
+  const normalizedName = normalizeGoalIconName(name);
+  if (isMciIconName(normalizedName)) {
+    return <MaterialCommunityIcons name={getMciName(normalizedName)} size={size} color={color} />;
+  }
+  const IconComponent = LucideIcons[toPascalCase(normalizedName)] || LucideIcons.Target;
+  return <IconComponent size={size} color={color} strokeWidth={2.2} />;
+}
 
 const POT_IMAGE = require("../assets/plants/pot.png");
 const TROPHY_POT_IMAGES = {
   bronze: require("../assets/plants/pot_b.png"),
   silver: require("../assets/plants/pot_s.png"),
   gold: require("../assets/plants/pot_g.png"),
+  platinum: require("../assets/plants/pot_p.png"),
 };
 
-const TROPHY_FERN_IMAGES = {
-  bronze: {
-    stage1: require("../assets/plants/fern_stage1_b.png"),
-    stage2: require("../assets/plants/fern_stage2_b.png"),
-    stage3: require("../assets/plants/fern_stage3_b.png"),
-    stage4: require("../assets/plants/fern_stage4_b.png"),
-  },
-  silver: {
-    stage1: require("../assets/plants/fern_stage1_s.png"),
-    stage2: require("../assets/plants/fern_stage2_s.png"),
-    stage3: require("../assets/plants/fern_stage3_s.png"),
-    stage4: require("../assets/plants/fern_stage4_s.png"),
-  },
-  gold: {
-    stage1: require("../assets/plants/fern_stage1_g.png"),
-    stage2: require("../assets/plants/fern_stage2_g.png"),
-    stage3: require("../assets/plants/fern_stage3_g.png"),
-    stage4: require("../assets/plants/fern_stage4_g.png"),
-  },
-};
+function isGoalDoneForDate(goal, dateKey) {
+  if (goal?.type === "completion") {
+    return !!goal?.logs?.completion?.[dateKey]?.done;
+  }
+
+  return (goal?.logs?.quantity?.[dateKey]?.value ?? 0) >= (goal?.measurable?.target ?? 0);
+}
+
+function dateFromFirestoreValue(value) {
+  if (!value) return null;
+  if (typeof value?.toDate === "function") {
+    const converted = value.toDate();
+    return Number.isNaN(converted?.getTime?.()) ? null : converted;
+  }
+  if (typeof value?.seconds === "number") {
+    const converted = new Date(value.seconds * 1000);
+    return Number.isNaN(converted.getTime()) ? null : converted;
+  }
+  const converted = new Date(value);
+  return Number.isNaN(converted.getTime()) ? null : converted;
+}
+
+function toDateKey(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function isGoalScheduledOnDate(goal, date) {
+  const scheduleType = goal?.schedule?.type;
+  const dayOfWeek = new Date(date).getDay();
+
+  if (scheduleType === "everyday") return true;
+  if (scheduleType === "weekdays") return dayOfWeek >= 1 && dayOfWeek <= 5;
+  if (scheduleType === "days") return !!goal?.schedule?.days?.includes(dayOfWeek);
+
+  if (Array.isArray(goal?.schedule?.days) && goal.schedule.days.length > 0) {
+    return goal.schedule.days.includes(dayOfWeek);
+  }
+
+  return true;
+}
+
+function getPlantHealthState(goal, now = new Date()) {
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+
+  const storedHealthLevel = Number(goal?.healthLevel);
+  if (goal?.shelfPosition?.pageId === STORAGE_PAGE_ID && storedHealthLevel >= 1 && storedHealthLevel <= 3) {
+    if (storedHealthLevel === 2) return { healthLevel: 2, status: "dry" };
+    if (storedHealthLevel === 1) return { healthLevel: 1, status: "dead" };
+    return { healthLevel: 3, status: "alive" };
+  }
+
+  const createdAtDate = dateFromFirestoreValue(goal?.createdAt);
+  const earliestDate = createdAtDate ? new Date(createdAtDate) : null;
+  if (earliestDate) earliestDate.setHours(0, 0, 0, 0);
+
+  const recentScheduledKeys = [];
+  const cursor = new Date(today);
+  for (let i = 0; i < 370 && recentScheduledKeys.length < 2; i += 1) {
+    if (earliestDate && cursor.getTime() < earliestDate.getTime()) break;
+    if (isGoalScheduledOnDate(goal, cursor)) {
+      recentScheduledKeys.push(toDateKey(cursor));
+    }
+    cursor.setDate(cursor.getDate() - 1);
+  }
+
+  let derived = { healthLevel: 1, status: "dead" };
+
+  if (recentScheduledKeys.length === 0) {
+    derived = { healthLevel: 3, status: "alive" };
+  } else if (isGoalDoneForDate(goal, recentScheduledKeys[0])) {
+    derived = { healthLevel: 3, status: "alive" };
+  } else if (recentScheduledKeys.length === 1 || isGoalDoneForDate(goal, recentScheduledKeys[1])) {
+    derived = { healthLevel: 2, status: "dry" };
+  }
+
+  if (storedHealthLevel >= 1 && storedHealthLevel < derived.healthLevel) {
+    if (storedHealthLevel === 2) return { healthLevel: 2, status: "dry" };
+    return { healthLevel: 1, status: "dead" };
+  }
+
+  return derived;
+}
 
 function getStoragePlantRating(plant) {
   if (plant?.shelfPosition?.pageId !== STORAGE_PAGE_ID) return null;
 
   const longestStreak = Number(plant?.longestStreak) || 0;
-  const healthLevel = Number(plant?.healthLevel) || 0;
+  const healthLevel = getPlantHealthState(plant).healthLevel;
 
-  if (longestStreak >= 21 && healthLevel >= 4) return "gold";
-  if (longestStreak >= 7 && healthLevel >= 3) return "silver";
+  if (longestStreak >= 24 && healthLevel >= 3) return "platinum";
+  if (longestStreak >= 18 && healthLevel >= 3) return "gold";
+  if (longestStreak >= 7 && healthLevel >= 2) return "silver";
   return "bronze";
 }
 
@@ -66,6 +166,7 @@ const TROPHY_PARTICLE_COLORS = {
   bronze: ["rgba(242, 196, 145, 0.95)", "rgba(255, 220, 184, 0.9)", "rgba(247, 177, 115, 0.92)"],
   silver: ["rgba(237, 242, 255, 0.96)", "rgba(213, 224, 255, 0.9)", "rgba(196, 214, 255, 0.92)"],
   gold: ["rgba(255, 249, 179, 1)", "rgba(255, 224, 120, 0.95)", "rgba(255, 238, 153, 0.96)"],
+  platinum: ["rgba(221, 245, 255, 1)", "rgba(189, 226, 255, 0.96)", "rgba(226, 213, 255, 0.94)"],
 };
 
 const TROPHY_PARTICLE_PRESETS = {
@@ -123,6 +224,24 @@ const TROPHY_PARTICLE_PRESETS = {
     orbitSizeRange: [2.2, 3.8],
     orbitDurationRange: [1300, 2200],
   },
+  platinum: {
+    count: 8,
+    xRange: [-6, 84],
+    yRange: [32, 84],
+    travelRange: [24, 56],
+    driftRange: [-24, 24],
+    sizeRange: [5.2, 10],
+    speedRange: [0.98, 1.24],
+    durationRange: [760, 1280],
+    waitRange: [8, 60],
+    opacityCurve: [0.1, 1, 0.88, 0],
+    scaleCurve: [0.58, 1.3, 0.82],
+    glowChance: 0.72,
+    orbitCount: 6,
+    orbitRadiusRange: [18, 30],
+    orbitSizeRange: [2.4, 4.1],
+    orbitDurationRange: [1150, 2000],
+  },
 };
 
 const randomBetween = (min, max) => min + Math.random() * (max - min);
@@ -156,7 +275,7 @@ const buildOrbitParticle = (rating, idx) => {
   const preset = TROPHY_PARTICLE_PRESETS[rating] || TROPHY_PARTICLE_PRESETS.bronze;
   const colors = TROPHY_PARTICLE_COLORS[rating] || TROPHY_PARTICLE_COLORS.bronze;
   const size = randomBetween(preset.orbitSizeRange[0], preset.orbitSizeRange[1]);
-  const glowBoost = rating === "gold" ? 3.5 : rating === "silver" ? 2.5 : 1.8;
+  const glowBoost = rating === "platinum" ? 4 : rating === "gold" ? 3.5 : rating === "silver" ? 2.5 : 1.8;
 
   return {
     key: `orbit-${rating}-${idx}-${Date.now()}-${Math.round(Math.random() * 100000)}`,
@@ -186,6 +305,8 @@ const TrophyParticles = ({ rating }) => {
   const [orbitParticles, setOrbitParticles] = useState(() => buildOrbitParticles(rating));
   const progressRefs = useRef([]);
   const orbitProgressRefs = useRef([]);
+  const beamAnim = useRef(new Animated.Value(0)).current;
+  const burstAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     const nextParticles = buildRandomParticles(rating);
@@ -194,6 +315,46 @@ const TrophyParticles = ({ rating }) => {
     setOrbitParticles(nextOrbitParticles);
     progressRefs.current = Array.from({ length: nextParticles.length }, (_, idx) => progressRefs.current[idx] || new Animated.Value(Math.random()));
     orbitProgressRefs.current = Array.from({ length: nextOrbitParticles.length }, (_, idx) => orbitProgressRefs.current[idx] || new Animated.Value(Math.random()));
+  }, [rating]);
+
+  useEffect(() => {
+    if (rating !== "gold" && rating !== "platinum") {
+      beamAnim.setValue(0);
+      return;
+    }
+
+    beamAnim.setValue(0);
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(beamAnim, {
+          toValue: 1,
+          duration: 1200,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(beamAnim, {
+          toValue: 0,
+          duration: 1400,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [rating]);
+
+  useEffect(() => {
+    if (!rating) return;
+    burstAnim.setValue(0);
+    Animated.timing(burstAnim, {
+      toValue: 1,
+      duration: 560,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) burstAnim.setValue(0);
+    });
   }, [rating]);
 
   useEffect(() => {
@@ -266,6 +427,72 @@ const TrophyParticles = ({ rating }) => {
 
   return (
     <View pointerEvents="none" style={styles.particleLayer}>
+      {(rating === "gold" || rating === "platinum") && (
+        <Animated.View
+          style={[
+            styles.trophyBeamWrap,
+            {
+              opacity: beamAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [rating === "platinum" ? 0.2 : 0.08, rating === "platinum" ? 0.5 : 0.22],
+              }),
+              transform: [
+                {
+                  scaleY: beamAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.85, 1.15],
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
+          {[
+            { x: -16, angle: -32 },
+            { x: -8, angle: -18 },
+            { x: 0, angle: 0 },
+            { x: 8, angle: 18 },
+            { x: 16, angle: 32 },
+          ].map((ray, idx) => (
+            <LinearGradient
+              key={`beam-${rating}-${ray.x}-${idx}`}
+              colors={
+                rating === "platinum"
+                  ? ["rgba(214, 239, 255, 0.86)", "rgba(206, 226, 255, 0.36)", "rgba(194, 171, 255, 0.09)", "rgba(194, 171, 255, 0)"]
+                  : ["rgba(255, 245, 186, 0.56)", "rgba(255, 231, 148, 0.2)", "rgba(255, 214, 118, 0.05)", "rgba(255, 214, 118, 0)"]
+              }
+              start={{ x: 0.5, y: 1 }}
+              end={{ x: 0.5, y: 0 }}
+              style={[
+                styles.trophyBeamRay,
+                {
+                  transform: [
+                    { translateX: ray.x },
+                    { translateY: 46 },
+                    { rotate: `${ray.angle}deg` },
+                    { translateY: -46 },
+                    { scaleY: 1 - Math.abs(ray.x) / 84 },
+                  ],
+                  opacity: 1 - Math.abs(ray.x) / 44,
+                },
+              ]}
+            />
+          ))}
+        </Animated.View>
+      )}
+
+      {rating && (
+        <Animated.View
+          style={[
+            styles.trophyBurst,
+            {
+              opacity: burstAnim.interpolate({ inputRange: [0, 0.18, 1], outputRange: [0, 0.64, 0] }),
+              transform: [{ scale: burstAnim.interpolate({ inputRange: [0, 1], outputRange: [0.35, 1.35] }) }],
+            },
+          ]}
+        />
+      )}
+
       {orbitParticles.map((particle, idx) => {
         const progress = orbitProgressRefs.current[idx] || new Animated.Value(0);
         const spin = progress.interpolate({
@@ -431,23 +658,31 @@ const PlantVisual = ({ plant }) => {
   else if (total > 15) stage = "stage3";
   else if (total > 5) stage = "stage2";
 
-  const status = plant.healthLevel === 1 ? "dead" : "alive";
+  const healthState = getPlantHealthState(plant);
+  const { status } = healthState;
   const species = plant.plantSpecies || (plant.type !== "completion" && plant.type !== "quantity" ? plant.type : "fern");
-  const asset = PLANT_ASSETS[species]?.[stage]?.[status] || PLANT_ASSETS.fern.stage1.alive;
-  const trophyPlantAsset = rating && status === "alive" && species === "fern" ? TROPHY_FERN_IMAGES[rating]?.[stage] : null;
-  const showTrophyParticles = Boolean(rating && status === "alive");
+  const asset = PLANT_ASSETS[species]?.[stage]?.[status] || PLANT_ASSETS[species]?.[stage]?.alive || PLANT_ASSETS.fern.stage1.alive;
+  const trophyVariantKey = rating === "platinum" ? "p" : rating === "gold" ? "g" : rating === "silver" ? "s" : rating === "bronze" ? "b" : null;
+  const trophyPlantAsset = rating && species === "fern" ? PLANT_ASSETS.fern?.[trophyVariantKey]?.[stage] : null;
+  const showTrophyParticles = Boolean(rating);
   const plantSource = trophyPlantAsset || asset;
   const potSource = rating ? (TROPHY_POT_IMAGES[rating] || POT_IMAGE) : POT_IMAGE;
+  const showReviveHeart = healthState.healthLevel === 2 && isGoalDoneForDate(plant, toDateKey(new Date()));
 
   const getPotIcon = () => {
-    if (plant.icon) return plant.icon;
-    if (plant.goalIcon) return plant.goalIcon;
-    return plant.type === "coding" ? "code-slash" : "leaf";
+    if (plant.icon) return normalizeGoalIconName(plant.icon, plant.type === "coding" ? "code" : "target");
+    if (plant.goalIcon) return normalizeGoalIconName(plant.goalIcon, plant.type === "coding" ? "code" : "target");
+    return plant.type === "coding" ? "code" : "target";
   };
 
   return (
     <View style={styles.plantAssemblyWrapper}>
       <View style={styles.plantAssembly}>
+        {showTrophyParticles && (
+          <View style={styles.trophyEffectsUnderPot}>
+            <TrophyParticles rating={rating} />
+          </View>
+        )}
         <ImageBackground source={potSource} style={styles.potBackground} imageStyle={styles.potImageTexture} resizeMode="contain">
           <Animated.Image
             source={plantSource}
@@ -463,9 +698,13 @@ const PlantVisual = ({ plant }) => {
             ]}
             resizeMode="contain"
           />
-          {showTrophyParticles && <TrophyParticles rating={rating} />}
+          {showReviveHeart && (
+            <View style={styles.reviveHeartBadge}>
+              <Ionicons name="heart" size={12} color="#fff" />
+            </View>
+          )}
           <View style={styles.potLabel}>
-            <Ionicons name={getPotIcon()} size={18} color="#fff" />
+            <GoalIcon name={getPotIcon()} size={18} color="#fff" />
           </View>
         </ImageBackground>
       </View>
@@ -486,8 +725,8 @@ const StaticPlant = ({ plant }) => (
 
 const SHELF_CONFIG = {
   topShelf: { side: "left", width: "65%", offsetTop: 0, slots: 3 },
-  middleShelf: { side: "right", width: "65%", offsetTop: -50, slots: 3 },
-  bottomShelf: { side: "full", width: "100%", offsetTop: 130, slots: 4 },
+  middleShelf: { side: "right", width: "65%", offsetTop: -20, slots: 3 },
+  bottomShelf: { side: "full", width: "100%", offsetTop: 190, slots: 4 },
 };
 
 export default function UserGardenScreen({ route, navigation }) {
@@ -497,45 +736,92 @@ export default function UserGardenScreen({ route, navigation }) {
   const [currentPageId, setCurrentPageId] = useState("default");
   const [loading, setLoading] = useState(true);
   const { width, height } = useWindowDimensions();
+  const contentHeight = Math.max(0, height - CONTENT_TOP_OFFSET);
   const flatListRef = useRef(null);
   const pageScrollX = useRef(new Animated.Value(0)).current;
   const [drawerShouldShow, setDrawerShouldShow] = useState(true);
   const drawerShouldShowRef = useRef(true);
 
   useEffect(() => {
-    if (!userId) return;
-    const unsubLayout = onSnapshot(collection(db, "users", userId, "gardenLayout"), (layoutSnap) => {
-      const layoutMap = {};
-      layoutSnap.forEach((layoutDoc) => {
-        const pos = layoutDoc.data().shelfPosition;
-        layoutMap[layoutDoc.id] = pos ? { ...pos, pageId: pos.pageId || "default" } : null;
-      });
+    if (!userId) {
+      setAllPlants([]);
+      setLoading(false);
+      return undefined;
+    }
 
-      const unsubGoals = onSnapshot(collection(db, "users", userId, "goals"), (goalsSnap) => {
-        const merged = goalsSnap.docs.map((goalDoc) => ({
-          id: goalDoc.id,
-          ...goalDoc.data(),
-          shelfPosition: layoutMap[goalDoc.id] || null,
-        }));
-        setAllPlants(merged);
+    let unsubGoals = () => {};
+    setLoading(true);
+
+    const unsubLayout = onSnapshot(
+      collection(db, "users", userId, "gardenLayout"),
+      (layoutSnap) => {
+        const layoutMap = {};
+        layoutSnap.forEach((layoutDoc) => {
+          const pos = layoutDoc.data().shelfPosition;
+          layoutMap[layoutDoc.id] = pos ? { ...pos, pageId: pos.pageId || "default" } : null;
+        });
+
+        unsubGoals();
+        unsubGoals = onSnapshot(
+          collection(db, "users", userId, "goals"),
+          (goalsSnap) => {
+            const merged = goalsSnap.docs.map((goalDoc) => ({
+              id: goalDoc.id,
+              ...goalDoc.data(),
+              shelfPosition: layoutMap[goalDoc.id] || null,
+            })).filter((goal) => !goal.isPrivate);
+            setAllPlants(merged);
+            setLoading(false);
+          },
+          (error) => {
+            if (error?.code !== "permission-denied") {
+              console.error("Error fetching user garden goals:", error);
+            }
+            setAllPlants([]);
+            setLoading(false);
+          }
+        );
+      },
+      (error) => {
+        if (error?.code !== "permission-denied") {
+          console.error("Error fetching user garden layout:", error);
+        }
+        unsubGoals();
+        setAllPlants([]);
         setLoading(false);
-      });
+      }
+    );
 
-      return () => unsubGoals();
-    });
-
-    return () => unsubLayout();
+    return () => {
+      unsubGoals();
+      unsubLayout();
+    };
   }, [userId]);
 
   useEffect(() => {
-    if (!userId) return;
-    const unsubPages = onSnapshot(collection(db, "users", userId, "gardenPages"), (snap) => {
-      const docs = snap.docs.map((pageDoc) => ({ id: pageDoc.id, ...pageDoc.data() }));
-      const sorted = docs.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-      const gardenPages = sorted.length ? sorted : [{ id: "default", title: "Page 1" }];
-      setPages([{ id: STORAGE_PAGE_ID, title: "Storage" }, ...gardenPages]);
-      setCurrentPageId((prev) => (prev && (prev === STORAGE_PAGE_ID || gardenPages.some((page) => page.id === prev)) ? prev : "default"));
-    });
+    if (!userId) {
+      setPages([{ id: STORAGE_PAGE_ID, title: "Storage" }]);
+      setCurrentPageId("default");
+      return undefined;
+    }
+
+    const unsubPages = onSnapshot(
+      collection(db, "users", userId, "gardenPages"),
+      (snap) => {
+        const docs = snap.docs.map((pageDoc) => ({ id: pageDoc.id, ...pageDoc.data() }));
+        const sorted = docs.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+        const gardenPages = sorted.length ? sorted : [{ id: "default", title: "Page 1" }];
+        setPages([{ id: STORAGE_PAGE_ID, title: "Storage" }, ...gardenPages]);
+        setCurrentPageId((prev) => (prev && (prev === STORAGE_PAGE_ID || gardenPages.some((page) => page.id === prev)) ? prev : "default"));
+      },
+      (error) => {
+        if (error?.code !== "permission-denied") {
+          console.error("Error fetching user garden pages:", error);
+        }
+        setPages([{ id: STORAGE_PAGE_ID, title: "Storage" }]);
+        setCurrentPageId("default");
+      }
+    );
     return () => unsubPages();
   }, [userId]);
 
@@ -637,7 +923,7 @@ export default function UserGardenScreen({ route, navigation }) {
       const plantsOnPage = allPlants.filter((plant) => plant.shelfPosition?.pageId === STORAGE_PAGE_ID);
       const shelfCount = Math.max(1, Math.ceil(plantsOnPage.length / 4) + 1);
       return (
-        <View style={[styles.storagePage, { width, height }]}>
+        <View style={[styles.storagePage, { width, height: contentHeight }]}>
           <View style={styles.storageHeader}>
             <Ionicons name="trophy" size={20} color="#FFD700" style={styles.storageHeaderIcon} />
             <Text style={styles.storageHeaderTitle}>Trophy Collection</Text>
@@ -652,9 +938,9 @@ export default function UserGardenScreen({ route, navigation }) {
 
     const plantsOnPage = allPlants.filter((plant) => plant.shelfPosition?.pageId === page.id);
     return (
-      <View style={{ width, height, overflow: "hidden" }}>
-        <ImageBackground source={FAR_BG} style={[styles.farBackground, { width, height }]} imageStyle={styles.farImageStyle} resizeMode="contain">
-          <ImageBackground source={GARDEN_BG} style={[styles.gardenBackground, { width, height }]} imageStyle={styles.gardenImageStyle} resizeMode="cover">
+      <View style={{ width, height: contentHeight, overflow: "hidden" }}>
+        <ImageBackground source={FAR_BG} style={[styles.farBackground, { width, height: contentHeight }]} imageStyle={styles.farImageStyle} resizeMode="contain">
+          <ImageBackground source={GARDEN_BG} style={[styles.gardenBackground, { width, height: contentHeight }]} imageStyle={styles.gardenImageStyle} resizeMode="cover">
             <View pointerEvents="none" style={styles.pageDrawerUnderlay}>
               <View style={styles.pageDrawerUnderlayTopBandPrimary} />
               <View style={styles.pageDrawerUnderlayTopBandSecondary} />
@@ -710,37 +996,39 @@ export default function UserGardenScreen({ route, navigation }) {
         <Text style={styles.readOnlyHeaderTitle} numberOfLines={1}>{username || "User"}'s Garden</Text>
       </View>
 
-      <Animated.FlatList
-        ref={flatListRef}
-        data={pages}
-        keyExtractor={(item) => item.id}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        bounces={false}
-        alwaysBounceHorizontal={false}
-        overScrollMode="never"
-        onScroll={Animated.event(
-          [{ nativeEvent: { contentOffset: { x: pageScrollX } } }],
-          {
-            useNativeDriver: false,
-            listener: (e) => {
-              const offsetX = e.nativeEvent.contentOffset.x;
-              const nextShow = offsetX > width * 0.9;
-              if (nextShow !== drawerShouldShowRef.current) {
-                drawerShouldShowRef.current = nextShow;
-                setDrawerShouldShow(nextShow);
-              }
-            },
-          }
-        )}
-        scrollEventThrottle={16}
-        onMomentumScrollEnd={onPageScrollEnd}
-        getItemLayout={(_, index) => ({ length: width, offset: width * index, index })}
-        initialScrollIndex={pageIndex}
-        renderItem={({ item }) => <View style={{ width, flex: 1 }}>{renderGardenPage(item)}</View>}
-        style={[styles.pageList, { width, height }]}
-      />
+      <View style={[styles.pageFrame, { marginTop: CONTENT_TOP_OFFSET, height: contentHeight }]}> 
+        <Animated.FlatList
+          ref={flatListRef}
+          data={pages}
+          keyExtractor={(item) => item.id}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          bounces={false}
+          alwaysBounceHorizontal={false}
+          overScrollMode="never"
+          onScroll={Animated.event(
+            [{ nativeEvent: { contentOffset: { x: pageScrollX } } }],
+            {
+              useNativeDriver: false,
+              listener: (e) => {
+                const offsetX = e.nativeEvent.contentOffset.x;
+                const nextShow = offsetX > width * 0.9;
+                if (nextShow !== drawerShouldShowRef.current) {
+                  drawerShouldShowRef.current = nextShow;
+                  setDrawerShouldShow(nextShow);
+                }
+              },
+            }
+          )}
+          scrollEventThrottle={16}
+          onMomentumScrollEnd={onPageScrollEnd}
+          getItemLayout={(_, index) => ({ length: width, offset: width * index, index })}
+          initialScrollIndex={pageIndex}
+          renderItem={({ item }) => <View style={{ width, height: contentHeight }}>{renderGardenPage(item)}</View>}
+          style={[styles.pageList, { width, height: contentHeight }]}
+        />
+      </View>
 
       <View style={styles.pageDotsContainer}>
         <View style={styles.pageDots}>
@@ -787,17 +1075,17 @@ export default function UserGardenScreen({ route, navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fdfbf700" },
+  container: { flex: 1, backgroundColor: "#1a1836" },
   loader: { flex: 1, justifyContent: "center", alignItems: "center" },
   readOnlyHeader: {
     position: "absolute",
-    top: 48,
+    top: 62,
     left: 14,
     right: 14,
     zIndex: 40,
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(20, 25, 45, 0.82)",
+    backgroundColor: "rgba(46, 52, 73, 0.82)",
     borderRadius: 14,
     paddingHorizontal: 10,
     paddingVertical: 10,
@@ -835,12 +1123,17 @@ const styles = StyleSheet.create({
   pageDots: { flexDirection: "row", justifyContent: "center", alignItems: "center", paddingVertical: 6 },
   dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "rgb(103, 103, 103)", marginHorizontal: 4 },
   pageList: { flex: 1 },
+  pageFrame: {
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    overflow: "hidden",
+  },
   storagePage: { flex: 1, backgroundColor: "#242347" },
   storageHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingTop: 54,
+    paddingTop: 4,
     paddingBottom: 14,
     paddingHorizontal: 20,
     backgroundColor: "#1a1836",
@@ -859,7 +1152,7 @@ const styles = StyleSheet.create({
   },
   storageHeaderIcon: { opacity: 0.9 },
   storageScroll: { flex: 1 },
-  storageScrollContent: { paddingTop: 20, paddingBottom: 220, gap: 18 },
+  storageScrollContent: { paddingTop: 10, paddingBottom: 220, gap: 18 },
   gardenMain: { flex: 1, paddingBottom: 160, paddingTop: 40, justifyContent: "space-around" },
   shelfWrapper: { height: 132, justifyContent: "flex-end", marginBottom: 20, marginHorizontal: -4, overflow: "visible" },
   storageShelfWrapper: { width: "100%", alignSelf: "center", marginTop: 0, marginBottom: 0, overflow: "visible" },
@@ -884,7 +1177,7 @@ const styles = StyleSheet.create({
   shelfBandDivider: { position: "absolute", top: 0, left: 0, right: 0, height: 0, backgroundColor: "#A63A3A", zIndex: 2 },
   shelfBandUpper: { position: "absolute", top: 1, left: 0, right: 0, height: 18, backgroundColor: "#a84615" },
   shelfBandLower: { position: "absolute", left: 0, right: 0, bottom: 0, height: 12, backgroundColor: "#611c45" },
-  bottomShelfLedge: { height: 65, borderRadius: 0 },
+  bottomShelfLedge: { height: 60, borderRadius: 0 },
   bottomShelfHighlightLeft: { top: 12, left: "8%", width: "48%", height: 11, borderRadius: 8, backgroundColor: "#FF9F4A", opacity: 0.92 },
   bottomShelfHighlightRight: { top: 18, right: "-1%", width: "39%", height: 18, borderRadius: 12, backgroundColor: "#FF9742", opacity: 0.9 },
   bottomShelfCornerShade: { top: 6, right: "4%", width: "38%", height: 5, borderRadius: 4, backgroundColor: "#f44d2c", opacity: 0.5 },
@@ -895,9 +1188,9 @@ const styles = StyleSheet.create({
   storageShelfLedge: { borderRadius: 12, overflow: "hidden" },
   slotsRow: { height: 85, flexDirection: "row", justifyContent: "space-around", width: "100%", zIndex: 5 },
   slot: { width: 80, height: 80, justifyContent: "flex-end", alignItems: "center", borderRadius: 12 },
-  drawer: { position: "absolute", bottom: -30, height: 170, width: "100%", backgroundColor: "#242347", zIndex: 100, overflow: "hidden" },
+  drawer: { position: "absolute", bottom: -80, height: 170, width: "100%", backgroundColor: "#242347", zIndex: 100, overflow: "hidden" },
   drawerHidden: { opacity: 0 },
-  pageDrawerUnderlay: { position: "absolute", bottom: 33, left: 0, right: 0, height: 170, backgroundColor: "#242347", zIndex: 1, overflow: "hidden" },
+  pageDrawerUnderlay: { position: "absolute", bottom: -20, left: 0, right: 0, height: 170, backgroundColor: "#242347", zIndex: 1, overflow: "hidden" },
   pageDrawerUnderlayTopBandPrimary: { position: "absolute", top: 0, left: 0, right: 0, height: 12, backgroundColor: "#111338" },
   pageDrawerUnderlayTopBandSecondary: { position: "absolute", top: 12, left: 0, right: 0, height: 6, backgroundColor: "#1A1D45" },
   drawerTopBandPrimary: { position: "absolute", top: 0, left: 0, right: 0, height: 12, backgroundColor: "#111338" },
@@ -919,13 +1212,36 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
     bottom: 30,
   },
-  potBackground: { width: 80, height: 80, alignItems: "center", justifyContent: "flex-end", position: "relative", bottom: 10 },
-  particleLayer: { position: "absolute", left: -8, right: -8, bottom: 30, height: 80, zIndex: 3 },
+  trophyEffectsUnderPot: { position: "absolute", width: 108, height: 140, bottom: 8, zIndex: 0, overflow: "visible" },
+  potBackground: { width: 80, height: 80, alignItems: "center", justifyContent: "flex-end", position: "relative", bottom: 10, zIndex: 1 },
+  particleLayer: { position: "absolute", left: -6, right: -6, bottom: 21, height: 124, zIndex: 1 },
+  trophyBeamWrap: { position: "absolute", left: 8, right: 8, bottom: 25, height: 124, alignItems: "center", justifyContent: "flex-end", zIndex: -1 },
+  trophyBeamRay: { position: "absolute", bottom: 0, width: 24, height: 118, borderTopLeftRadius: 20, borderTopRightRadius: 20, borderBottomLeftRadius: 11, borderBottomRightRadius: 11 },
+  trophyBurst: { position: "absolute", left: 18, bottom: 34, width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.6)" },
   particleDot: { position: "absolute", width: 6, height: 6, borderRadius: 3 },
   orbitCenter: { position: "absolute", left: 32, bottom: 36, width: 16, height: 16, alignItems: "center", justifyContent: "center" },
   orbitDot: { position: "absolute" },
   potImageTexture: { width: "100%", height: "70%", bottom: 0, position: "absolute" },
   plantImage: { width: 65, height: 85, position: "absolute", bottom: 68, zIndex: 1 },
+  reviveHeartBadge: {
+    position: "absolute",
+    left: 10,
+    top: 0,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: "#ff426b",
+    borderWidth: 1.5,
+    borderColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 5,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 4,
+  },
   potLabel: { position: "absolute", bottom: 30, minWidth: 24, minHeight: 24, justifyContent: "center", alignItems: "center", zIndex: 4 },
   farBackground: { flex: 1, width: "100%", backgroundColor: "#1a1a1a" },
   farImageStyle: { top: 0, left: 40, opacity: 1, height: "120%", transform: [{ scale: 1.3 }] },

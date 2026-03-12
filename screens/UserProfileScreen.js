@@ -5,7 +5,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import { doc, getDoc, collection, getDocs, setDoc, deleteDoc } from "firebase/firestore";
 import { auth, db } from "../firebaseConfig";
 import { theme } from "../theme";
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 
 // IMPORT YOUR ACHIEVEMENTS STORE
 import { ACHIEVEMENTS } from "../AchievementsStore";

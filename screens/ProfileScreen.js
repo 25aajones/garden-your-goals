@@ -5,7 +5,8 @@ import { useFocusEffect } from "@react-navigation/native";
 import { doc, getDoc, collection, getDocs, updateDoc } from "firebase/firestore";
 import { auth, db } from "../firebaseConfig";
 import { theme } from "../theme";
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { updateOverallScoreForUser } from "../utils/scoreUtils";
 
 // IMPORT YOUR ACHIEVEMENTS STORE
 import { ACHIEVEMENTS } from "../AchievementsStore";
@@ -30,21 +31,8 @@ export default function ProfileScreen({ navigation }) {
       const userSnap = await getDoc(userRef);
       let userData = userSnap.exists() ? userSnap.data() : {};
 
-      const goalsRef = collection(db, "users", uid, "goals");
-      const goalsSnap = await getDocs(goalsRef);
-      
-      let calculatedScore = 0;
-      goalsSnap.docs.forEach(doc => {
-        const goal = doc.data();
-        const currentStreak = goal.currentStreak || 0;
-        const longestStreak = goal.longestStreak || 0;
-        calculatedScore += (currentStreak * 10) + (longestStreak * 5);
-      });
-
-      if (userData.overallScore !== calculatedScore) {
-        await updateDoc(userRef, { overallScore: calculatedScore });
-        userData.overallScore = calculatedScore; 
-      }
+      const calculatedScore = await updateOverallScoreForUser(uid);
+      userData.overallScore = calculatedScore;
       
       setProfileData(userData);
 

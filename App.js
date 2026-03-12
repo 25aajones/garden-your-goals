@@ -5,7 +5,7 @@ import { NavigationContainer } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 
 // Firebase
 import { onAuthStateChanged } from "firebase/auth";
@@ -25,6 +25,7 @@ import ProfileScreen from "./screens/ProfileScreen";
 import AddFriendsScreen from "./screens/AddFriendsScreen";
 import UserProfileScreen from './screens/UserProfileScreen';
 import UserGardenScreen from './screens/UserGardenScreen';
+import SharedGardenScreen from './screens/SharedGardenScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import RankScreen from './screens/RankScreen';
 import GardenScreen from './screens/GardenScreen'; // <-- 1. IMPORT GARDEN SCREEN
@@ -48,7 +49,14 @@ function GoalsStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="GoalsHome" component={GoalsScreen} />
-      <Stack.Screen name="Goal" component={GoalScreen} />
+      <Stack.Screen
+        name="Goal"
+        component={GoalScreen}
+        options={{
+          animation: "slide_from_bottom",
+          animationDuration: 180,
+        }}
+      />
     </Stack.Navigator>
   );
 }
@@ -88,6 +96,15 @@ function GardenStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="GardenHome" component={GardenScreen} />
+      <Stack.Screen name="SharedGarden" component={SharedGardenScreen} />
+      <Stack.Screen
+        name="Goal"
+        component={GoalScreen}
+        options={{
+          animation: "slide_from_bottom",
+          animationDuration: 180,
+        }}
+      />
     </Stack.Navigator>
   );
 }
@@ -152,24 +169,38 @@ export default function App() {
   const [initializing, setInitializing] = useState(true);
 
   useEffect(() => {
-    let unsubFirestore;
+    let unsubFirestore = null;
 
     const unsubAuth = onAuthStateChanged(auth, (firebaseUser) => {
+      if (unsubFirestore) {
+        unsubFirestore();
+        unsubFirestore = null;
+      }
+
       setUser(firebaseUser);
 
       if (firebaseUser) {
-        unsubFirestore = onSnapshot(doc(db, "users", firebaseUser.uid), (docSnap) => {
-          if (docSnap.exists() && docSnap.data().username) {
-            setHasUsername(true);
-          } else {
+        unsubFirestore = onSnapshot(
+          doc(db, "users", firebaseUser.uid),
+          (docSnap) => {
+            if (docSnap.exists() && docSnap.data().username) {
+              setHasUsername(true);
+            } else {
+              setHasUsername(false);
+            }
+            setInitializing(false);
+          },
+          (error) => {
+            if (error?.code !== "permission-denied" || auth.currentUser) {
+              console.error("Error listening to user profile:", error);
+            }
             setHasUsername(false);
+            setInitializing(false);
           }
-          setInitializing(false);
-        });
+        );
       } else {
         setHasUsername(false);
         setInitializing(false);
-        if (unsubFirestore) unsubFirestore();
       }
     });
 
