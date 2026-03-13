@@ -4,7 +4,7 @@ import { StatusBar } from "expo-status-bar";
 import { NavigationContainer } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 
 // Firebase & Auth
@@ -17,11 +17,14 @@ import { GoalsProvider } from "./components/GoalsStore";
 import { theme } from "./theme";
 
 import WelcomeScreen from "./screens/WelcomeScreen";
-import HomeScreen from "./screens/HomeScreen";
 import GoalsScreen from "./screens/GoalsScreen";
 import AddGoalScreen from "./screens/AddGoalScreen";
 import GoalScreen from "./screens/GoalScreen";
 import CalendarScreen from "./screens/CalendarScreen";
+
+import RankScreen from "./screens/RankScreen";
+import GardenScreen from "./screens/GardenScreen";
+import SettingsScreen from "./screens/SettingsScreen";
 
 // --- Helpers ---
 function Placeholder({ title }) {
@@ -53,11 +56,24 @@ function AddStack() {
   );
 }
 
+/**
+ * ✅ GardenStack keeps Settings + Challenge "in the tab group"
+ * without being separate tabs.
+ */
+function GardenStack() {
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="GardenHome" component={GardenScreen} />
+      <Stack.Screen name="Challenge" component={ChallengeScreen} />
+      <Stack.Screen name="Settings" component={SettingsScreen} />
+    </Stack.Navigator>
+  );
+}
 // --- Main App Component ---
 export default function App() {
   const [user, setUser] = useState(null);
   const [initializing, setInitializing] = useState(true);
-
+  
   useEffect(() => {
     // Listen for Firebase login/logout
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
@@ -66,58 +82,77 @@ export default function App() {
     });
     return unsubscribe;
   }, []);
+  useEffect(() => {
+    (async () => {
+      try {
+        const ok = await ensureNotificationPermissions();
+        if (ok) {
+          await scheduleDailyReminder(9, 0);
+        }
+      } catch (e) {
+        console.log("Notifications setup failed:", e);
+      }
+    })();
+  }, []);
 
+  
   // Show nothing while we check if the user is logged in
   if (initializing) return null;
 
   return (
-    <SafeAreaProvider> 
+    <SafeAreaProvider>
       <GoalsProvider>
         <NavigationContainer>
-        <StatusBar style="dark" />
+          <StatusBar style="dark" />
 
           <RootStack.Navigator screenOptions={{ headerShown: false }}>
-    <RootStack.Screen name="Welcome" component={WelcomeScreen} />
+            <RootStack.Screen name="Welcome" component={WelcomeScreen} />
+            <RootStack.Screen name="Tabs" component={TabsNavigator} />
+          </RootStack.Navigator>
+        </NavigationContainer>
+      </GoalsProvider>
+    </SafeAreaProvider>
+  );
+}
 
-    <RootStack.Screen name="Tabs">
-  {() => (
+
+function TabsNavigator() {
+  const insets = useSafeAreaInsets();
+
+  return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarShowLabel: true,
         tabBarHideOnKeyboard: true,
 
-        // Figma-like bar (shorter, padded, clean)
         tabBarStyle: {
-          height: 64,
+          height: 64 + insets.bottom,
           paddingTop: 8,
-          paddingBottom: 10,
+          paddingBottom: Math.max(10, insets.bottom),
           backgroundColor: theme.surface,
           borderTopWidth: 0,
-          elevation: 10, // Android shadow
+          elevation: 10,
         },
 
         tabBarActiveTintColor: theme.text,
         tabBarInactiveTintColor: theme.muted,
 
-        // Figma-like label
         tabBarLabelStyle: {
           fontSize: 10,
           fontWeight: "800",
           marginTop: 2,
         },
 
-        // Icon mapping to match your Figma tabs
-        tabBarIcon: ({ color, size, focused }) => {
+        tabBarIcon: ({ color, focused }) => {
           const map = {
             Rank: focused ? "trophy" : "trophy-outline",
-            Goals: focused ? "leaf" : "leaf-outline",      // "Habits" in Figma
+            Goals: focused ? "leaf" : "leaf-outline",
             Add: focused ? "add-circle" : "add-circle-outline",
             Calendar: focused ? "calendar" : "calendar-outline",
             Garden: focused ? "flower" : "flower-outline",
           };
 
-          // Slightly larger icon like Figma
           const iconName = map[route.name] ?? "ellipse-outline";
           const iconSize = route.name === "Add" ? 28 : 22;
 
@@ -125,7 +160,7 @@ export default function App() {
         },
       })}
     >
-      <Tab.Screen name="Rank" children={() => <Placeholder title="Rank (Coming Soon)" />} />
+      <Tab.Screen name="Rank" component={RankScreen} />
 
       {/* This route is named "Goals" but your Figma label says "Habits" */}
       <Tab.Screen
@@ -143,11 +178,5 @@ export default function App() {
       <Tab.Screen name="Calendar" component={CalendarScreen}/>
       <Tab.Screen name="Garden" children={() => <Placeholder title="Garden (Coming Soon)" />} />
     </Tab.Navigator>
-  )}
-</RootStack.Screen>
-  </RootStack.Navigator>
-        </NavigationContainer>
-      </GoalsProvider>
-    </SafeAreaProvider>
   );
 }
