@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   View,
   Text,
@@ -20,11 +21,20 @@ import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import * as LucideIcons from "lucide-react-native/icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { PLANT_ASSETS } from "../constants/PlantAssets";
+import { subscribePersonalCustomizations } from "../utils/customizationFirestore";
+import { auth } from "../firebaseConfig";
 
+import { SHELF_COLOR_SCHEMES } from "../constants/ShelfColors";
+
+import { FAR_BG_ASSETS } from "../constants/FarBGAssets";
+import { WALLPAPER_ASSETS } from "../constants/WallpaperAssets";
+import { FRAME_ASSETS } from "../constants/FrameAssets";
+
+// fallback for old code
 const FAR_BG = require("../assets/far_background.png");
 const GARDEN_BG = require("../assets/garden_BG.png");
 const STORAGE_PAGE_ID = "storage";
-const CONTENT_TOP_OFFSET = 132;
+// Removed CONTENT_TOP_OFFSET for layout parity with GardenScreen.js
 const toPascalCase = (value) =>
   String(value || "")
     .split(/[-_\s]+/)
@@ -724,23 +734,59 @@ const StaticPlant = ({ plant }) => (
 );
 
 const SHELF_CONFIG = {
-  topShelf: { side: "left", width: "65%", offsetTop: 0, slots: 3 },
-  middleShelf: { side: "right", width: "65%", offsetTop: -20, slots: 3 },
-  bottomShelf: { side: "full", width: "100%", offsetTop: 190, slots: 4 },
+  topShelf: { side: 'left', width: '65%', offsetTop: -0, slots: 3 },
+  middleShelf: { side: 'right', width: '65%', offsetTop: -50, slots: 3 },
+  bottomShelf: { side: 'full', width: '100%', offsetTop: 130, slots: 4 },
 };
 
 export default function UserGardenScreen({ route, navigation }) {
+  // insets already declared, removed duplicate
+  const insets = useSafeAreaInsets();
   const { userId, username } = route.params || {};
   const [allPlants, setAllPlants] = useState([]);
   const [pages, setPages] = useState([]);
   const [currentPageId, setCurrentPageId] = useState("default");
   const [loading, setLoading] = useState(true);
   const { width, height } = useWindowDimensions();
-  const contentHeight = Math.max(0, height - CONTENT_TOP_OFFSET);
+  // Use full height for layout, matching GardenScreen.js
+  const contentHeight = height;
   const flatListRef = useRef(null);
   const pageScrollX = useRef(new Animated.Value(0)).current;
   const [drawerShouldShow, setDrawerShouldShow] = useState(true);
   const drawerShouldShowRef = useRef(true);
+  const [drawerBottom, setDrawerBottom] = useState(0);
+  const [parentHeight, setParentHeight] = useState(0);
+  const [shelfLayout, setShelfLayout] = useState({ y: 0, height: 0 });
+  const drawerHeight = 200; // Should match styles.drawer.height
+
+  // --- Customization State ---
+  const [customizations, setCustomizations] = useState({});
+
+  // Subscribe to user customizations
+  useEffect(() => {
+    let unsub;
+    if (userId) {
+      unsub = subscribePersonalCustomizations(userId, setCustomizations);
+    }
+    return () => unsub && unsub();
+  }, [userId]);
+
+  const onGardenMainLayout = useCallback((e) => {
+    setParentHeight(e.nativeEvent.layout.height);
+  }, []);
+  const onBottomShelfLayout = useCallback((e) => {
+    const { y, height } = e.nativeEvent.layout;
+    setShelfLayout({ y, height });
+  }, []);
+
+  useEffect(() => {
+    if (parentHeight && shelfLayout.height) {
+      // The drawer's top should align with the bottom of the shelf, so offset by shelf height
+      const drawerHeight = 200; // matches styles.drawer.height
+      const offset = Math.max(parentHeight - (shelfLayout.y + shelfLayout.height) - drawerHeight, 0);
+      setDrawerBottom(offset);
+    }
+  }, [parentHeight, shelfLayout]);
 
   useEffect(() => {
     if (!userId) {
@@ -872,40 +918,63 @@ export default function UserGardenScreen({ route, navigation }) {
     );
   };
 
+  // Updated renderShelf to use customization (pixel-perfect match to GardenScreen)
   const renderShelf = (pageId, shelfName, plantsOnPage) => {
     const config = SHELF_CONFIG[shelfName];
-    const isBottomShelf = shelfName === "bottomShelf";
+    const isBottomShelf = shelfName === 'bottomShelf';
+    const custom = customizations?.[pageId] || {};
+    const shelfColorIdx = custom.shelfColor ?? 0;
+    const scheme = SHELF_COLOR_SCHEMES[shelfColorIdx] || SHELF_COLOR_SCHEMES[0] || {};
 
     const shelfDecor = (
       <>
-        <View style={[styles.shelfHighlightLeft, isBottomShelf && styles.bottomShelfHighlightLeft]} />
-        <View style={[styles.shelfHighlightRight, isBottomShelf && styles.bottomShelfHighlightRight]} />
-        <View style={[styles.shelfCornerShade, isBottomShelf && styles.bottomShelfCornerShade]} />
+        <View style={[styles.shelfHighlightLeft, isBottomShelf && styles.bottomShelfHighlightLeft, { backgroundColor: isBottomShelf ? scheme.bottomHighlightLeft : scheme.highlightLeft }]} />
+        <View style={[styles.shelfHighlightRight, isBottomShelf && styles.bottomShelfHighlightRight, { backgroundColor: isBottomShelf ? scheme.bottomHighlightRight : scheme.highlightRight }]} />
+        <View style={[styles.shelfCornerShade, isBottomShelf && styles.bottomShelfCornerShade, { backgroundColor: isBottomShelf ? scheme.bottomCornerShade : scheme.cornerShade }]} />
         <View style={[styles.shelfBand, isBottomShelf && styles.bottomShelfBand]}>
-          <View style={[styles.shelfBandDivider, isBottomShelf && styles.bottomShelfBandDivider]} />
+          <View style={[styles.shelfBandDivider, isBottomShelf && styles.bottomShelfBandDivider, { backgroundColor: isBottomShelf ? scheme.bottomBandDivider : scheme.bandDivider }]} />
           {isBottomShelf ? (
-            <LinearGradient colors={["#8A2D35", "#65243A"]} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={[styles.shelfBandUpper, styles.bottomShelfBandUpper]} />
+            <LinearGradient
+              colors={scheme.bandUpperGradient}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
+              style={[styles.shelfBandUpper, styles.bottomShelfBandUpper]}
+            />
           ) : (
-            <View style={styles.shelfBandUpper} />
+            <View style={[styles.shelfBandUpper, { backgroundColor: scheme.bandUpperBg }]} />
           )}
           {isBottomShelf ? (
-            <LinearGradient colors={["#592344", "#3D1736"]} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={[styles.shelfBandLower, styles.bottomShelfBandLower]} />
+            <LinearGradient
+              colors={scheme.bandLowerGradient}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
+              style={[styles.shelfBandLower, styles.bottomShelfBandLower]}
+            />
           ) : (
-            <View style={styles.shelfBandLower} />
+            <View style={[styles.shelfBandLower, { backgroundColor: scheme.bandLowerBg }]} />
           )}
         </View>
       </>
     );
 
     return (
-      <View key={`${pageId}_${shelfName}`} style={[styles.shelfWrapper, { width: config.width, alignSelf: config.side === "left" ? "flex-start" : config.side === "right" ? "flex-end" : "center", marginTop: config.offsetTop }]}>
+      <View
+        key={`${pageId}_${shelfName}`}
+        style={[styles.shelfWrapper, { width: config.width, alignSelf: config.side==='left'?'flex-start':config.side==='right'?'flex-end':'center', marginTop: config.offsetTop }]}
+        onLayout={isBottomShelf ? onBottomShelfLayout : undefined}
+      >
         {isBottomShelf ? (
-          <LinearGradient colors={["#FF6A28", "#E0502A", "#B43A2A"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0.25 }} style={[styles.shelfLedge, styles.bottomShelfLedge]}>
+          <LinearGradient
+            colors={scheme.ledgeGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0.25 }}
+            style={[styles.shelfLedge, styles.bottomShelfLedge]}
+          >
             {shelfDecor}
           </LinearGradient>
         ) : (
           <View style={styles.shelfShadow}>
-            <View style={styles.shelfLedge}>{shelfDecor}</View>
+            <View style={[styles.shelfLedge, { backgroundColor: scheme.ledgeBg }]}>{shelfDecor}</View>
           </View>
         )}
         <View style={styles.slotsRow}>
@@ -923,7 +992,7 @@ export default function UserGardenScreen({ route, navigation }) {
       const plantsOnPage = allPlants.filter((plant) => plant.shelfPosition?.pageId === STORAGE_PAGE_ID);
       const shelfCount = Math.max(1, Math.ceil(plantsOnPage.length / 4) + 1);
       return (
-        <View style={[styles.storagePage, { width, height: contentHeight }]}>
+        <View style={[styles.storagePage, { width, height }]}> 
           <View style={styles.storageHeader}>
             <Ionicons name="trophy" size={20} color="#FFD700" style={styles.storageHeaderIcon} />
             <Text style={styles.storageHeaderTitle}>Trophy Collection</Text>
@@ -937,16 +1006,26 @@ export default function UserGardenScreen({ route, navigation }) {
     }
 
     const plantsOnPage = allPlants.filter((plant) => plant.shelfPosition?.pageId === page.id);
+    // Use customization for background and window frame
+    const custom = customizations?.[page.id] || {};
+    const farBgIdx = custom.farBg ?? 0;
+    const wallBgIdx = custom.wallBg ?? 0;
+    const windowFrameIdx = custom.windowFrame ?? 0;
     return (
-      <View style={{ width, height: contentHeight, overflow: "hidden" }}>
-        <ImageBackground source={FAR_BG} style={[styles.farBackground, { width, height: contentHeight }]} imageStyle={styles.farImageStyle} resizeMode="contain">
-          <ImageBackground source={GARDEN_BG} style={[styles.gardenBackground, { width, height: contentHeight }]} imageStyle={styles.gardenImageStyle} resizeMode="cover">
-            <View pointerEvents="none" style={styles.pageDrawerUnderlay}>
-              <View style={styles.pageDrawerUnderlayTopBandPrimary} />
-              <View style={styles.pageDrawerUnderlayTopBandSecondary} />
+      <View style={{ width, height, overflow: "hidden" }}>
+        <ImageBackground source={FAR_BG_ASSETS[farBgIdx] || FAR_BG} style={[styles.farBackground, { width, height }]} imageStyle={styles.farImageStyle} resizeMode="contain">
+          <ImageBackground source={WALLPAPER_ASSETS[wallBgIdx] || GARDEN_BG} style={[styles.gardenBackground, { width, height }]} imageStyle={styles.gardenImageStyle} resizeMode="cover">
+            {FRAME_ASSETS[windowFrameIdx] && (
+              <Image source={FRAME_ASSETS[windowFrameIdx]} style={[styles.gardenImageStyle, { position: "absolute", width, height }]} resizeMode="cover" />
+            )}
+            <View pointerEvents="none" style={[styles.pageDrawerUnderlay, { bottom: drawerBottom }]}> 
+              <View className="pageDrawerUnderlayTopBandPrimary" style={styles.pageDrawerUnderlayTopBandPrimary} />
+              <View className="pageDrawerUnderlayTopBandSecondary" style={styles.pageDrawerUnderlayTopBandSecondary} />
             </View>
-            <View style={styles.gardenMain}>
-              {["topShelf", "middleShelf", "bottomShelf"].map((shelfName) => renderShelf(page.id, shelfName, plantsOnPage))}
+            <View style={styles.gardenMain} onLayout={onGardenMainLayout}>
+              {["topShelf", "middleShelf", "bottomShelf"].map((shelfName) =>
+                renderShelf(page.id, shelfName, plantsOnPage)
+              )}
             </View>
             <GardenAmbientParticles />
           </ImageBackground>
@@ -988,7 +1067,7 @@ export default function UserGardenScreen({ route, navigation }) {
   const pageIndex = Math.max(0, pages.findIndex((page) => page.id === currentPageId));
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingTop: (insets.top || 0) + 62 }]}> 
       <View style={styles.readOnlyHeader}>
         <TouchableOpacity style={styles.readOnlyBackBtn} onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={20} color="#fff" />
@@ -996,7 +1075,7 @@ export default function UserGardenScreen({ route, navigation }) {
         <Text style={styles.readOnlyHeaderTitle} numberOfLines={1}>{username || "User"}'s Garden</Text>
       </View>
 
-      <View style={[styles.pageFrame, { marginTop: CONTENT_TOP_OFFSET, height: contentHeight }]}> 
+      <View style={[styles.pageFrame, { height }]}> 
         <Animated.FlatList
           ref={flatListRef}
           data={pages}
@@ -1025,7 +1104,7 @@ export default function UserGardenScreen({ route, navigation }) {
           onMomentumScrollEnd={onPageScrollEnd}
           getItemLayout={(_, index) => ({ length: width, offset: width * index, index })}
           initialScrollIndex={pageIndex}
-          renderItem={({ item }) => <View style={{ width, height: contentHeight }}>{renderGardenPage(item)}</View>}
+          renderItem={({ item }) => <View style={{ width, height }}>{renderGardenPage(item)}</View>}
           style={[styles.pageList, { width, height: contentHeight }]}
         />
       </View>
@@ -1059,16 +1138,11 @@ export default function UserGardenScreen({ route, navigation }) {
         </View>
       </View>
 
-      <View pointerEvents={drawerShouldShow ? "auto" : "none"} style={[styles.drawer, !drawerShouldShow && styles.drawerHidden]}>
+      {/* Drawer is visually present but plants are hidden for read-only user garden */}
+      <View pointerEvents={drawerShouldShow ? "auto" : "none"} style={[styles.drawer, { bottom: drawerBottom - ((insets.top || 0) + 62) }, !drawerShouldShow && styles.drawerHidden]}>
         <View style={styles.drawerTopBandPrimary} />
         <View style={styles.drawerTopBandSecondary} />
-        <ScrollView horizontal directionalLockEnabled showsHorizontalScrollIndicator={false} showsVerticalScrollIndicator={false} bounces={false} alwaysBounceVertical={false} contentContainerStyle={[styles.drawerList, { flexDirection: "row", alignItems: "center" }]}>
-          {drawerPlants.map((plant) => (
-            <View key={plant.id} style={{ marginHorizontal: 10 }}>
-              <StaticPlant plant={plant} />
-            </View>
-          ))}
-        </ScrollView>
+        {/* Plants in the drawer are intentionally hidden in UserGardenScreen */}
       </View>
     </View>
   );
@@ -1133,7 +1207,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingTop: 4,
+    paddingTop: 54,
     paddingBottom: 14,
     paddingHorizontal: 20,
     backgroundColor: "#1a1836",
@@ -1154,8 +1228,8 @@ const styles = StyleSheet.create({
   storageScroll: { flex: 1 },
   storageScrollContent: { paddingTop: 10, paddingBottom: 220, gap: 18 },
   gardenMain: { flex: 1, paddingBottom: 160, paddingTop: 40, justifyContent: "space-around" },
-  shelfWrapper: { height: 132, justifyContent: "flex-end", marginBottom: 20, marginHorizontal: -4, overflow: "visible" },
-  storageShelfWrapper: { width: "100%", alignSelf: "center", marginTop: 0, marginBottom: 0, overflow: "visible" },
+  shelfWrapper: { height: 132, justifyContent: 'flex-end', marginBottom: 20, marginHorizontal: -4, overflow: 'visible' },
+  storageShelfWrapper: { width: '100%', alignSelf: 'center', marginTop: 0, marginBottom: 0, overflow: 'visible' },
   shelfShadow: {
     position: "absolute",
     bottom: 0,
@@ -1188,9 +1262,9 @@ const styles = StyleSheet.create({
   storageShelfLedge: { borderRadius: 12, overflow: "hidden" },
   slotsRow: { height: 85, flexDirection: "row", justifyContent: "space-around", width: "100%", zIndex: 5 },
   slot: { width: 80, height: 80, justifyContent: "flex-end", alignItems: "center", borderRadius: 12 },
-  drawer: { position: "absolute", bottom: -80, height: 170, width: "100%", backgroundColor: "#242347", zIndex: 100, overflow: "hidden" },
+  drawer: { position: "absolute", bottom: 0, height: 136, width: "100%", backgroundColor: "#242347", zIndex: 100, overflow: "hidden" },
   drawerHidden: { opacity: 0 },
-  pageDrawerUnderlay: { position: "absolute", bottom: -20, left: 0, right: 0, height: 170, backgroundColor: "#242347", zIndex: 1, overflow: "hidden" },
+  pageDrawerUnderlay: { position: "absolute", bottom: 38, left: 0, right: 0, height: 170, backgroundColor: "#242347", zIndex: 1, overflow: "hidden" },
   pageDrawerUnderlayTopBandPrimary: { position: "absolute", top: 0, left: 0, right: 0, height: 12, backgroundColor: "#111338" },
   pageDrawerUnderlayTopBandSecondary: { position: "absolute", top: 12, left: 0, right: 0, height: 6, backgroundColor: "#1A1D45" },
   drawerTopBandPrimary: { position: "absolute", top: 0, left: 0, right: 0, height: 12, backgroundColor: "#111338" },

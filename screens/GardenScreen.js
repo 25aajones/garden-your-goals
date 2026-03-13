@@ -1053,6 +1053,28 @@ const DraggablePlant = memo(({ plant, isEditing, wiggleAnim, onLongPress, onDrag
 
 // --- 3. MAIN GARDEN SCREEN ---
 export default function GardenScreen({ route, navigation }) {
+  // --- Drawer and shelf positioning state/logic ---
+  const [drawerBottom, setDrawerBottom] = useState(0);
+  const [parentHeight, setParentHeight] = useState(0);
+  const [shelfLayout, setShelfLayout] = useState({ y: 0, height: 0 });
+
+  const onGardenMainLayout = useCallback((e) => {
+    setParentHeight(e.nativeEvent.layout.height);
+  }, []);
+
+  const onBottomShelfLayout = useCallback((e) => {
+    const { y, height } = e.nativeEvent.layout;
+    setShelfLayout({ y, height });
+  }, []);
+
+  useEffect(() => {
+    if (parentHeight && shelfLayout.height) {
+      // The drawer's top should align with the bottom of the shelf, so offset by shelf height
+      const drawerHeight = 200; // matches styles.drawer.height
+      const offset = Math.max(parentHeight - (shelfLayout.y + shelfLayout.height) - drawerHeight, 0);
+      setDrawerBottom(offset);
+    }
+  }, [parentHeight, shelfLayout]);
     // --- Customization State ---
     const [showCustomization, setShowCustomization] = useState(false);
     // { [pageId]: { farBg, windowFrame, wallBg, shelfColor } }
@@ -2556,82 +2578,86 @@ export default function GardenScreen({ route, navigation }) {
     );
   };
 
-const renderShelf = (pageId, shelfName, plantsOnPage, shelfColorIdx = 0) => {
-    const config = SHELF_CONFIG[shelfName];
-    const isBottomShelf = shelfName === 'bottomShelf';
-    const scheme = SHELF_COLOR_SCHEMES[shelfColorIdx] || SHELF_COLOR_SCHEMES[0];
+const renderShelf = (pageId, shelfName, plantsOnPage, shelfColorIdx = 0, onBottomShelfLayout) => {
+  const config = SHELF_CONFIG[shelfName];
+  const isBottomShelf = shelfName === 'bottomShelf';
+  const scheme = SHELF_COLOR_SCHEMES[shelfColorIdx] || SHELF_COLOR_SCHEMES[0];
 
-    const shelfDecor = (
-      <>
-        <View style={[styles.shelfHighlightLeft, isBottomShelf && styles.bottomShelfHighlightLeft, { backgroundColor: isBottomShelf ? scheme.bottomHighlightLeft : scheme.highlightLeft }]} />
-        <View style={[styles.shelfHighlightRight, isBottomShelf && styles.bottomShelfHighlightRight, { backgroundColor: isBottomShelf ? scheme.bottomHighlightRight : scheme.highlightRight }]} />
-        <View style={[styles.shelfCornerShade, isBottomShelf && styles.bottomShelfCornerShade, { backgroundColor: isBottomShelf ? scheme.bottomCornerShade : scheme.cornerShade }]} />
-        <View style={[styles.shelfBand, isBottomShelf && styles.bottomShelfBand]}>
-          <View style={[styles.shelfBandDivider, isBottomShelf && styles.bottomShelfBandDivider, { backgroundColor: isBottomShelf ? scheme.bottomBandDivider : scheme.bandDivider }]} />
-          {isBottomShelf ? (
-            <LinearGradient
-              colors={scheme.bandUpperGradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 0, y: 1 }}
-              style={[styles.shelfBandUpper, styles.bottomShelfBandUpper]}
-            />
-          ) : (
-            <View style={[styles.shelfBandUpper, { backgroundColor: scheme.bandUpperBg }]} />
-          )}
-          {isBottomShelf ? (
-            <LinearGradient
-              colors={scheme.bandLowerGradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 0, y: 1 }}
-              style={[styles.shelfBandLower, styles.bottomShelfBandLower]}
-            />
-          ) : (
-            <View style={[styles.shelfBandLower, { backgroundColor: scheme.bandLowerBg }]} />
-          )}
-        </View>
-      </>
-    );
-
-    return (
-      <View key={`${pageId}_${shelfName}`} style={[styles.shelfWrapper, { width: config.width, alignSelf: config.side==='left'?'flex-start':config.side==='right'?'flex-end':'center', marginTop: config.offsetTop }]}> 
+  const shelfDecor = (
+    <>
+      <View style={[styles.shelfHighlightLeft, isBottomShelf && styles.bottomShelfHighlightLeft, { backgroundColor: isBottomShelf ? scheme.bottomHighlightLeft : scheme.highlightLeft }]} />
+      <View style={[styles.shelfHighlightRight, isBottomShelf && styles.bottomShelfHighlightRight, { backgroundColor: isBottomShelf ? scheme.bottomHighlightRight : scheme.highlightRight }]} />
+      <View style={[styles.shelfCornerShade, isBottomShelf && styles.bottomShelfCornerShade, { backgroundColor: isBottomShelf ? scheme.bottomCornerShade : scheme.cornerShade }]} />
+      <View style={[styles.shelfBand, isBottomShelf && styles.bottomShelfBand]}>
+        <View style={[styles.shelfBandDivider, isBottomShelf && styles.bottomShelfBandDivider, { backgroundColor: isBottomShelf ? scheme.bottomBandDivider : scheme.bandDivider }]} />
         {isBottomShelf ? (
           <LinearGradient
-            colors={scheme.ledgeGradient}
+            colors={scheme.bandUpperGradient}
             start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0.25 }}
-            style={[styles.shelfLedge, styles.bottomShelfLedge]}
-          >
-            {shelfDecor}
-          </LinearGradient>
+            end={{ x: 0, y: 1 }}
+            style={[styles.shelfBandUpper, styles.bottomShelfBandUpper]}
+          />
         ) : (
-          <View style={styles.shelfShadow}>
-            <View style={[styles.shelfLedge, { backgroundColor: scheme.ledgeBg }]}>{shelfDecor}</View>
-          </View>
+          <View style={[styles.shelfBandUpper, { backgroundColor: scheme.bandUpperBg }]} />
         )}
-        <View style={styles.slotsRow}>
-          {Array.from({ length: config.slots }).map((_, idx) => {
-            const occupant = plantsOnPage.find(p => p.shelfPosition?.shelfName === shelfName && p.shelfPosition?.slotIndex === idx);
-            const slotKey = `${pageId}_${shelfName}_${idx}`;
-            return (
-              <View key={slotKey} ref={el => slotRefs.current[slotKey] = el} style={[styles.slot, isEditing && styles.slotEditBox]} collapsable={false}>
-                {occupant && (
-                  <DraggablePlant 
-                    key={occupant.id}
-                    plant={occupant} isEditing={isEditing} disabled={isReadOnly} wiggleAnim={wiggleAnim} 
-                    onCompletionTargetRef={setCompletionTargetRef}
-                    onLongPress={activateEditMode} globalPan={globalPan} globalDragRef={globalDragRef} 
-                    onPlantTap={handlePlantTap}
-                    onDragStart={handleDragStart} onDragEnd={handleDragEnd}
-                    onDelete={() => clearPlantFromLayout(occupant.id)}
-                  />
-                )}
-              </View>
-            );
-          })}
-        </View>
+        {isBottomShelf ? (
+          <LinearGradient
+            colors={scheme.bandLowerGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={[styles.shelfBandLower, styles.bottomShelfBandLower]}
+          />
+        ) : (
+          <View style={[styles.shelfBandLower, { backgroundColor: scheme.bandLowerBg }]} />
+        )}
       </View>
-    );
-  };
+    </>
+  );
+
+  return (
+    <View
+      key={`${pageId}_${shelfName}`}
+      style={[styles.shelfWrapper, { width: config.width, alignSelf: config.side==='left'?'flex-start':config.side==='right'?'flex-end':'center', marginTop: config.offsetTop }]}
+      onLayout={isBottomShelf ? onBottomShelfLayout : undefined}
+    >
+      {isBottomShelf ? (
+        <LinearGradient
+          colors={scheme.ledgeGradient}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0.25 }}
+          style={[styles.shelfLedge, styles.bottomShelfLedge]}
+        >
+          {shelfDecor}
+        </LinearGradient>
+      ) : (
+        <View style={styles.shelfShadow}>
+          <View style={[styles.shelfLedge, { backgroundColor: scheme.ledgeBg }]}>{shelfDecor}</View>
+        </View>
+      )}
+      <View style={styles.slotsRow}>
+        {Array.from({ length: config.slots }).map((_, idx) => {
+          const occupant = plantsOnPage.find(p => p.shelfPosition?.shelfName === shelfName && p.shelfPosition?.slotIndex === idx);
+          const slotKey = `${pageId}_${shelfName}_${idx}`;
+          return (
+            <View key={slotKey} ref={el => slotRefs.current[slotKey] = el} style={[styles.slot, isEditing && styles.slotEditBox]} collapsable={false}>
+              {occupant && (
+                <DraggablePlant 
+                  key={occupant.id}
+                  plant={occupant} isEditing={isEditing} disabled={isReadOnly} wiggleAnim={wiggleAnim} 
+                  onCompletionTargetRef={setCompletionTargetRef}
+                  onLongPress={activateEditMode} globalPan={globalPan} globalDragRef={globalDragRef} 
+                  onPlantTap={handlePlantTap}
+                  onDragStart={handleDragStart} onDragEnd={handleDragEnd}
+                  onDelete={() => clearPlantFromLayout(occupant.id)}
+                />
+              )}
+            </View>
+          );
+        })}
+      </View>
+    </View>
+  );
+};
 
 
   const storageTouchTimer = useRef(null);
@@ -2728,12 +2754,23 @@ const renderShelf = (pageId, shelfName, plantsOnPage, shelfColorIdx = 0) => {
                   resizeMode="cover"
                 />
               )}
-              <View pointerEvents="none" style={styles.pageDrawerUnderlay}>
+              <View pointerEvents="none" style={[styles.pageDrawerUnderlay, { bottom: drawerBottom }]}>
                 <View style={styles.pageDrawerUnderlayTopBandPrimary} />
                 <View style={styles.pageDrawerUnderlayTopBandSecondary} />
               </View>
-              <View style={styles.gardenMain}>
-                {["topShelf", "middleShelf", "bottomShelf"].map((shelfName) => renderShelf(page.id, shelfName, plantsOnPage, shelfColorIdx))}
+              <View
+                style={styles.gardenMain}
+                onLayout={onGardenMainLayout}
+              >
+                {["topShelf", "middleShelf", "bottomShelf"].map((shelfName) =>
+                  renderShelf(
+                    page.id,
+                    shelfName,
+                    plantsOnPage,
+                    shelfColorIdx,
+                    shelfName === 'bottomShelf' ? onBottomShelfLayout : undefined
+                  )
+                )}
               </View>
             </ImageBackground>
           </ImageBackground>
@@ -3047,7 +3084,7 @@ const renderShelf = (pageId, shelfName, plantsOnPage, shelfColorIdx = 0) => {
         pointerEvents={drawerShouldShow ? 'auto' : 'none'}
         style={[
           styles.drawer,
-          { bottom: -insets.bottom - 16 },
+          { bottom: drawerBottom },
           !isReadOnly && isEditing && styles.drawerEditBox,
           !drawerShouldShow && styles.drawerHidden,
         ]}
@@ -3812,7 +3849,7 @@ const styles = StyleSheet.create({
 
   drawer: {
     position: 'absolute',
-    height: 200,
+    height: 136,
     width: '100%',
     backgroundColor: '#242347',
     zIndex: 100,
@@ -3988,10 +4025,6 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 12000,
   },
-
-
-
-
 
   // The container stays fullscreen
   farBackground: {
