@@ -1,51 +1,129 @@
 // screens/AddGoalScreen.js
-import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useRef, useState, memo } from "react";
 import {
   View,
   Text,
   StyleSheet,
   Pressable,
-  TextInput,
+  LayoutAnimation,
   KeyboardAvoidingView,
   Platform,
-  Modal,
+  Alert,
+  UIManager,
+  findNodeHandle,
+  Dimensions,
   ScrollView,
+  Switch,
+  Modal,
+  Keyboard,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useFocusEffect } from "@react-navigation/native";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
+import * as LucideIcons from "lucide-react-native/icons";
 import Page from "../components/Page";
 import { theme } from "../theme";
-import { useGoals, toKey } from "../components/GoalsStore";
+import { useGoals, fromKey } from "../components/GoalsStore";
 
-/**
- * Goal Grower — Add Goal Wizard (non-scrolling, paged)
- * - Keeps dot progress UI
- * - Adapts questions based on goal type (HabitNow-like)
- * - Multi-select categories
- * - Checklist add/remove items
- * - Flexible "By deadline" goals with optional benchmarks
- * - Help/tutorial overlay that explains each page + highlights the section
- * - Safe bottom spacing so tab bar remains readable/usable on any device
- * - Draft restores only if < 5 minutes (handled by GoalsStore); clears after save
- * - Resets back to first page after a goal is planted
- */
+// FIREBASE IMPORTS
+import { collection, addDoc, serverTimestamp, onSnapshot, query, where, doc, setDoc } from "firebase/firestore";
+import { auth, db } from "../firebaseConfig";
 
-const CATEGORY_CHOICES = ["Body", "Mind", "Spirit", "Work", "Custom"];
+// --- 1. ICON CONSTANTS & HELPER ---
+const RESERVED_LUCIDE_EXPORTS = new Set(["default", "Icon", "createLucideIcon"]);
 
-/**
- * Types:
- * - completion: done/not-done per day
- * - numeric: track value per day
- * - timer: track minutes per day
- * - checklist: complete multiple items per day
- * - flex: flexible progress until deadline (shows each day until finished)
- */
-const TYPE_CARDS = [
-  { key: "completion", title: "Check-off", desc: "Mark it done for the day." },
-  { key: "numeric", title: "Number", desc: "Track a value (pages, cups, reps)." },
-  { key: "timer", title: "Timer", desc: "Track minutes of effort." },
-  { key: "checklist", title: "Checklist", desc: "Complete several items." },
-  { key: "flex", title: "By deadline", desc: "Flexible progress until a due date." },
+const pascalToKebab = (value) =>
+  value
+    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1-$2")
+    .toLowerCase();
+
+const toPascalCase = (value) =>
+  String(value || "")
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join("");
+
+const allIconNames = Object.keys(LucideIcons)
+  .filter((key) => !RESERVED_LUCIDE_EXPORTS.has(key) && /^[A-Z]/.test(key))
+  .map(pascalToKebab)
+  .sort();
+
+const CUSTOM_PACK_ICONS = ["mci:run-fast"];
+const pickerIconNames = [...new Set([...CUSTOM_PACK_ICONS, ...allIconNames])];
+
+const SUPPORTED_MCI_ICONS = new Set(["run-fast"]);
+const isMciIconName = (name) => typeof name === "string" && name.startsWith("mci:");
+const getMciName = (name) => String(name || "").slice(4);
+
+const ICON_NAME_SET = new Set(pickerIconNames);
+const dedupeIcons = (icons) => [...new Set(icons)];
+
+const FEATURED_ICON_CANDIDATES = [
+  "target",
+  "user",
+  "person-standing",
+  "footprints",
+  "activity",
+  "dumbbell",
+  "utensils",
+  "apple",
+  "pizza",
+  "sandwich",
+  "chef-hat",
+  "briefcase",
+  "book-open",
+  "brain",
+  "heart-pulse",
+  "sprout",
+  "bike",
+  "clock-3",
+];
+
+const FEATURED_ICONS = FEATURED_ICON_CANDIDATES.filter((name) => ICON_NAME_SET.has(name));
+
+const ICON_SEARCH_SYNONYMS = {
+  food: ["utensils", "apple", "pizza", "sandwich", "chef-hat"],
+  eat: ["utensils", "apple", "sandwich"],
+  meal: ["utensils", "pizza", "sandwich"],
+  man: ["user", "person-standing"],
+  person: ["user", "person-standing", "accessibility"],
+  running: ["mci:run-fast", "footprints", "activity", "dumbbell", "bike"],
+  run: ["mci:run-fast", "footprints", "activity"],
+  workout: ["dumbbell", "activity", "bike"],
+  exercise: ["dumbbell", "activity", "footprints"],
+};
+
+const LEGACY_ICON_TO_LUCIDE = {
+  leaf: "sprout",
+  "leaf-outline": "sprout",
+  "code-slash": "code",
+};
+
+function normalizeGoalIconName(name, fallback = "target") {
+  if (!name || typeof name !== "string") return fallback;
+  if (isMciIconName(name) && SUPPORTED_MCI_ICONS.has(getMciName(name))) return name;
+  const mapped = LEGACY_ICON_TO_LUCIDE[name] || name;
+  return LucideIcons[toPascalCase(mapped)] ? mapped : fallback;
+}
+
+function GoalIcon({ name, size, color }) {
+  const normalizedName = normalizeGoalIconName(name);
+  if (isMciIconName(normalizedName)) {
+    return <MaterialCommunityIcons name={getMciName(normalizedName)} size={size} color={color} />;
+  }
+  const IconComponent = LucideIcons[toPascalCase(normalizedName)] || LucideIcons.Target;
+  return <IconComponent size={size} color={color} strokeWidth={2.2} />;
+}
+
+const DAYS = [
+  { label: "Sun", day: 0 },
+  { label: "Mon", day: 1 },
+  { label: "Tue", day: 2 },
+  { label: "Wed", day: 3 },
+  { label: "Thu", day: 4 },
+  { label: "Fri", day: 5 },
+  { label: "Sat", day: 6 },
 ];
 
 const WHEN_SUGGEST = ["Morning", "After class", "After lunch", "Evening", "Before bed"];
@@ -76,20 +154,83 @@ function endOfWeekKey() {
   return toKey(d);
 }
 
-function endOfMonthKey() {
-  const now = new Date();
-  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-  end.setHours(0, 0, 0, 0);
-  return toKey(end);
+const toISODate = (date) => {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const addDaysISO = (days) => {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return toISODate(date);
+};
+
+const addYearsISO = (years) => {
+  const date = new Date();
+  date.setFullYear(date.getFullYear() + years);
+  return toISODate(date);
+};
+
+const formatDateInput = (text) => {
+  const digits = text.replace(/\D/g, "").slice(0, 8);
+  if (digits.length <= 4) return digits;
+  if (digits.length <= 6) return `${digits.slice(0, 4)}-${digits.slice(4)}`;
+  return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6)}`;
+};
+
+const isValidISODate = (value) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [y, m, d] = value.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  return date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === d;
+};
+
+const toStartOfDay = (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+const WEEKDAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
+
+const monthLabel = (date) =>
+  date.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+
+const buildMonthGrid = (monthDate) => {
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const firstDayWeekIndex = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const cells = [];
+  for (let i = 0; i < firstDayWeekIndex; i += 1) cells.push(null);
+  for (let day = 1; day <= daysInMonth; day += 1) cells.push(day);
+  while (cells.length < 42) cells.push(null);
+  return cells;
+};
+
+const mapDayShort = (d) => ["S", "M", "T", "W", "Th", "F", "Sa"][d] ?? "?";
+
+if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-function isValidDateKey(s) {
-  // YYYY-MM-DD
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
-  const [y, m, d] = s.split("-").map(Number);
-  if (!y || !m || !d) return false;
-  const dt = new Date(y, m - 1, d);
-  return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
+// --- 2. OPTIMIZED ICON COMPONENT ---
+const IconItem = memo(({ iconName, isActive, onSelect }) => (
+  <Pressable 
+    onPress={() => onSelect(iconName)} 
+    style={[styles.iconBox, isActive && styles.iconBoxActive]}
+  >
+    {isActive && (
+      <View style={styles.iconSelectedBadge}>
+        <Ionicons name="checkmark" size={12} color="#FFFFFF" />
+      </View>
+    )}
+    <GoalIcon name={iconName} size={45} color={isActive ? "#FFFFFF" : "#111111"} />
+  </Pressable>
+));
+
+function measureRef(ref, cb) {
+  const node = findNodeHandle(ref.current);
+  if (!node) return cb(null);
+  UIManager.measureInWindow(node, (x, y, width, height) => cb({ x, y, width, height }));
 }
 
 function Pill({ label, active, onPress }) {
@@ -110,133 +251,96 @@ function PrimaryButton({ label, onPress, disabled }) {
 
 function GhostButton({ label, onPress, disabled }) {
   return (
-    <Pressable onPress={onPress} disabled={disabled} style={[styles.ghostBtn, disabled && { opacity: 0.55 }]}>
-      <Text style={styles.ghostBtnText}>{label}</Text>
-    </Pressable>
+    <View style={styles.segmentWrap}>
+      <Pressable
+        onPress={() => onChange(left.value)}
+        style={[styles.segment, value === left.value && styles.segmentActive]}
+      >
+        <Text style={[styles.segmentText, value === left.value && styles.segmentTextActive]}>{left.label}</Text>
+      </Pressable>
+      <Pressable
+        onPress={() => onChange(right.value)}
+        style={[styles.segment, value === right.value && styles.segmentActive]}
+      >
+        <Text style={[styles.segmentText, value === right.value && styles.segmentTextActive]}>{right.label}</Text>
+      </Pressable>
+    </View>
   );
 }
 
 function Dot({ state }) {
   return (
-    <View
-      style={[
-        styles.dot,
-        state === "active" && { backgroundColor: theme.accent, borderColor: theme.accent },
-        state === "done" && { backgroundColor: theme.text2, borderColor: theme.text2 },
-      ]}
-    />
-  );
-}
-
-function CoachMark({ visible, title, body, onClose }) {
-  return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.coachOverlay}>
-        <Pressable style={styles.coachBackdrop} onPress={onClose} />
-        <View style={styles.coachCard}>
-          <Text style={styles.coachTitle}>{title}</Text>
-          <Text style={styles.coachBody}>{body}</Text>
-          <View style={{ height: 12 }} />
-          <PrimaryButton label="Got it" onPress={onClose} />
-        </View>
-      </View>
-    </Modal>
+    <View style={styles.dotsRow} accessibilityRole="progressbar">
+      {Array.from({ length: total }).map((_, i) => (
+        <View
+          key={i}
+          style={[
+            styles.dot,
+            !!done[i] && styles.dotDone,
+            i === index && styles.dotActive,
+          ]}
+        />
+      ))}
+    </View>
   );
 }
 
 export default function AddGoalScreen({ navigation }) {
-  const insets = useSafeAreaInsets();
-  const store = useGoals();
+  const { selectedDateKey } = useGoals();
+  const [isSaving, setIsSaving] = useState(false);
+  const [showIconPicker, setShowIconPicker] = useState(false);
+  const [sharedGardens, setSharedGardens] = useState([]);
+  const [selectedGardenId, setSelectedGardenId] = useState("personal");
 
-  // IMPORTANT: these are expected to exist in your GoalsStore (you already have them wired)
-  const { addGoal, draft, draftLoaded, saveDraft, clearDraft } = store;
+  const selectedDate = fromKey(selectedDateKey);
+  const selectedDay = selectedDate.getDay();
+  const uid = auth.currentUser?.uid;
 
-  // Steps: 0 seed, 1 track, 2 schedule, 3 plan(opt), 4 why(opt), 5 review
-  const STEPS = useMemo(
-    () => [
-      {
-        key: "seed",
-        title: "Plant A Goal",
-        subtitle: "Give your goal a clear name so it’s easy to recognize.",
-      },
-      {
-        key: "track",
-        title: "How will you measure growth?",
-        subtitle: "Simple checkmark or a quantity you count.",
-      },
-      {
-        key: "schedule",
-        title: "When will you water it?",
-        subtitle: "Pick the days this goal shows up.",
-      },
-      {
-        key: "plan",
-        title: "Make it easy",
-        subtitle: "Attach it to a routine (optional, but powerful).",
-        optional: true,
-      },
-      {
-        key: "why",
-        title: "Why does it matter?",
-        subtitle: "A quick reason helps on low-motivation days (optional).",
-        optional: true,
-      },
-      {
-        key: "review",
-        title: "Plant it",
-        subtitle: "Review and save. You can refine later as it grows.",
-      },
-    ],
-    []
-  );
-
-  const [step, setStep] = useState(0);
-
-  // --- Core fields
-  const [kind, setKind] = useState("completion");
+  // Form State
   const [name, setName] = useState("");
-  const [categories, setCategories] = useState(["Custom"]);
-
-  // schedule: everyday | weekdays | custom
-  const [scheduleMode, setScheduleMode] = useState("everyday");
-  const [days, setDays] = useState([1, 2, 3, 4, 5]);
-
-  // numeric
+  const [category, setCategory] = useState("Custom");
+  const [isPrivate, setIsPrivate] = useState(false);
+  const [selectedIcon, setSelectedIcon] = useState("target");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [type, setType] = useState("completion");
   const [target, setTarget] = useState("1");
   const [unit, setUnit] = useState("times");
-
-  // timer
-  const [minutes, setMinutes] = useState("10");
-
-  // checklist
-  const [checkItems, setCheckItems] = useState([
-    { id: uid("c"), text: "" },
-    { id: uid("c"), text: "" },
-  ]);
-
-  // plan (routine)
+  const [mode, setMode] = useState("days");
+  const [days, setDays] = useState([selectedDay]);
   const [whenStr, setWhenStr] = useState("");
   const [whereStr, setWhereStr] = useState("");
-  const [cueStr, setCueStr] = useState("");
-  const [rewardStr, setRewardStr] = useState("");
   const [whyStr, setWhyStr] = useState("");
+  const [completionMode, setCompletionMode] = useState("none");
+  const [completionEndDate, setCompletionEndDate] = useState("");
+  const [completionEndAmount, setCompletionEndAmount] = useState("");
+  const [completionEndUnit, setCompletionEndUnit] = useState("times");
+  const [multiUserWateringEnabled, setMultiUserWateringEnabled] = useState(false);
+  const [requiredContributors, setRequiredContributors] = useState("2");
+  const [calendarMonth, setCalendarMonth] = useState(toStartOfDay(new Date()));
+  const [calendarWidth, setCalendarWidth] = useState(0);
+  const calendarPagerRef = useRef(null);
 
-  // flex
-  const [flexTarget, setFlexTarget] = useState("5");
-  const [flexUnit, setFlexUnit] = useState("pages");
-  const [deadlinePreset, setDeadlinePreset] = useState("month"); // week | month | custom
-  const [customDeadline, setCustomDeadline] = useState(endOfMonthKey());
-  const [benchmarksEnabled, setBenchmarksEnabled] = useState(false);
-  const [benchmarks, setBenchmarks] = useState([]);
+  // Filtered Icons Logic
+  const filteredIcons = useMemo(() => {
+    const cleanSearch = searchTerm.toLowerCase().trim();
+    if (!cleanSearch) {
+      return dedupeIcons([...FEATURED_ICONS, ...pickerIconNames]).slice(0, 500);
+    }
 
-  // help
-  const [helpOpen, setHelpOpen] = useState(false);
+    const directMatches = pickerIconNames.filter((name) => name.includes(cleanSearch));
+    const synonymMatches = Object.entries(ICON_SEARCH_SYNONYMS)
+      .filter(([keyword]) => cleanSearch.includes(keyword))
+      .flatMap(([, icons]) => icons)
+      .filter((name) => ICON_NAME_SET.has(name));
 
-  const deadlineKey = useMemo(() => {
-    if (deadlinePreset === "week") return endOfWeekKey();
-    if (deadlinePreset === "month") return endOfMonthKey();
-    return customDeadline;
-  }, [deadlinePreset, customDeadline]);
+    return dedupeIcons([...synonymMatches, ...directMatches]).slice(0, 500);
+  }, [searchTerm]);
+
+  const scheduleDays = useMemo(() => {
+    if (mode === "everyday") return [0, 1, 2, 3, 4, 5, 6];
+    if (mode === "weekdays") return [1, 2, 3, 4, 5];
+    return days.length ? days : [selectedDay];
+  }, [mode, days, selectedDay]);
 
   const frequencyLabel = useMemo(() => {
     if (kind === "flex") return "By deadline";
@@ -259,817 +363,580 @@ export default function AddGoalScreen({ navigation }) {
     });
   };
 
-  const toggleDay = (d) => {
-    setDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]));
-  };
+  const completionCondition = useMemo(() => {
+    if (completionMode === "date" && isValidISODate(completionEndDate.trim())) {
+      return { type: "date", endDate: completionEndDate.trim() };
+    }
+    if (completionMode === "amount" && Number(completionEndAmount) > 0) {
+      return {
+        type: "amount",
+        targetAmount: clampNum(completionEndAmount, 1, 999999),
+        unit: completionEndUnit.trim() || "times",
+      };
+    }
+    if (
+      completionMode === "both" &&
+      isValidISODate(completionEndDate.trim()) &&
+      Number(completionEndAmount) > 0
+    ) {
+      return {
+        type: "both",
+        endDate: completionEndDate.trim(),
+        targetAmount: clampNum(completionEndAmount, 1, 999999),
+        unit: completionEndUnit.trim() || "times",
+      };
+    }
+    return { type: "none" };
+  }, [completionMode, completionEndDate, completionEndAmount, completionEndUnit]);
 
-  const addChecklistItem = () => setCheckItems((prev) => [...prev, { id: uid("c"), text: "" }]);
+  const completionDateMeta = useMemo(() => {
+    if (!isValidISODate(completionEndDate.trim())) return null;
+    const [year, month, day] = completionEndDate.trim().split("-").map(Number);
+    const endDate = new Date(year, month - 1, day);
+    const today = toStartOfDay(new Date());
+    const endStart = toStartOfDay(endDate);
+    const daysLeft = Math.round((endStart.getTime() - today.getTime()) / 86400000);
 
-  const removeChecklistItem = (id) => {
-    setCheckItems((prev) => {
-      const next = prev.filter((x) => x.id !== id);
-      return next.length ? next : [{ id: uid("c"), text: "" }];
-    });
-  };
-
-  const addBenchmark = () => {
-    setBenchmarks((prev) => [
-      ...prev,
-      {
-        id: uid("b"),
-        amount: String(Math.max(1, Number(flexTarget) || 1)),
-        dateKey: deadlineKey,
-      },
-    ]);
-  };
-
-  const removeBenchmark = (id) => setBenchmarks((prev) => prev.filter((b) => b.id !== id));
-
-  const updateBenchmark = (id, patch) => {
-    setBenchmarks((prev) => prev.map((b) => (b.id === id ? { ...b, ...patch } : b)));
-  };
-
-  const resetWizard = useCallback(() => {
-    setStep(0);
-    setKind("completion");
-    setName("");
-    setCategories(["Custom"]);
-    setScheduleMode("everyday");
-    setDays([1, 2, 3, 4, 5]);
-    setTarget("1");
-    setUnit("times");
-    setMinutes("10");
-    setCheckItems([
-      { id: uid("c"), text: "" },
-      { id: uid("c"), text: "" },
-    ]);
-    setWhenStr("");
-    setWhereStr("");
-    setCueStr("");
-    setRewardStr("");
-    setWhyStr("");
-    setFlexTarget("5");
-    setFlexUnit("pages");
-    setDeadlinePreset("month");
-    setCustomDeadline(endOfMonthKey());
-    setBenchmarksEnabled(false);
-    setBenchmarks([]);
-    setHelpOpen(false);
-  }, []);
-
-  // --- Draft restore (GoalsStore handles 5-min staleness)
-  const [restoredOnce, setRestoredOnce] = useState(false);
-  const lastSavedRef = useRef("");
-  const saveTimerRef = useRef(null);
+    return {
+      readable: endDate.toLocaleDateString(undefined, {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      }),
+      daysLeft,
+    };
+  }, [completionEndDate]);
 
   useEffect(() => {
-    if (draftLoaded === false) return;
-    if (restoredOnce) return;
-
-    if (!draft?.data) {
-      setRestoredOnce(true);
-      return;
+    if (!uid) {
+      setSharedGardens([]);
+      setSelectedGardenId("personal");
+      return undefined;
     }
 
-    const d = draft.data;
-
-    setStep(d.step ?? 0);
-    setKind(d.kind ?? "completion");
-    setName(d.name ?? "");
-    setCategories(d.categories ?? (d.category ? [d.category] : ["Custom"]));
-
-    setScheduleMode(d.scheduleMode ?? "everyday");
-    setDays(d.days ?? [1, 2, 3, 4, 5]);
-
-    setTarget(d.target ?? "1");
-    setUnit(d.unit ?? "times");
-
-    setMinutes(d.minutes ?? "10");
-
-    setCheckItems(
-      Array.isArray(d.checkItems) && d.checkItems.length
-        ? d.checkItems
-        : [
-            { id: uid("c"), text: "" },
-            { id: uid("c"), text: "" },
-          ]
+    const unsubscribe = onSnapshot(
+      query(collection(db, "sharedGardens"), where("memberIds", "array-contains", uid)),
+      (snap) => {
+        const docs = snap.docs.map((gardenDoc) => ({ id: gardenDoc.id, ...gardenDoc.data() }));
+        setSharedGardens(docs);
+        setSelectedGardenId((prev) => {
+          if (prev === "personal") return prev;
+          return docs.some((garden) => garden.id === prev) ? prev : "personal";
+        });
+      },
+      () => {
+        setSharedGardens([]);
+        setSelectedGardenId("personal");
+      }
     );
 
-    setWhenStr(d.whenStr ?? "");
-    setWhereStr(d.whereStr ?? "");
-    setCueStr(d.cueStr ?? "");
-    setRewardStr(d.rewardStr ?? "");
-    setWhyStr(d.whyStr ?? "");
+    return () => unsubscribe();
+  }, [uid]);
 
-    setFlexTarget(d.flexTarget ?? "5");
-    setFlexUnit(d.flexUnit ?? "pages");
-    setDeadlinePreset(d.deadlinePreset ?? "month");
-    setCustomDeadline(d.customDeadline ?? endOfMonthKey());
+  const selectedGardenName = useMemo(() => {
+    if (selectedGardenId === "personal") return "Personal Garden";
+    return sharedGardens.find((garden) => garden.id === selectedGardenId)?.name || "Shared Garden";
+  }, [selectedGardenId, sharedGardens]);
 
-    setBenchmarksEnabled(!!d.benchmarksEnabled);
-    setBenchmarks(Array.isArray(d.benchmarks) ? d.benchmarks : []);
+  const calendarCells = useMemo(() => buildMonthGrid(calendarMonth), [calendarMonth]);
 
-    setRestoredOnce(true);
-  }, [draftLoaded, draft, restoredOnce]);
-
-  const draftPayload = useMemo(
-    () => ({
-      step,
-      kind,
-      name,
-      categories,
-      scheduleMode,
-      days,
-      target,
-      unit,
-      minutes,
-      checkItems,
-      whenStr,
-      whereStr,
-      cueStr,
-      rewardStr,
-      whyStr,
-      flexTarget,
-      flexUnit,
-      deadlinePreset,
-      customDeadline,
-      benchmarksEnabled,
-      benchmarks,
-    }),
-    [
-      step,
-      kind,
-      name,
-      categories,
-      scheduleMode,
-      days,
-      target,
-      unit,
-      minutes,
-      checkItems,
-      whenStr,
-      whereStr,
-      cueStr,
-      rewardStr,
-      whyStr,
-      flexTarget,
-      flexUnit,
-      deadlinePreset,
-      customDeadline,
-      benchmarksEnabled,
-      benchmarks,
-    ]
+  const prevMonth = useMemo(
+    () => new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1),
+    [calendarMonth]
   );
+  const nextMonth = useMemo(
+    () => new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1),
+    [calendarMonth]
+  );
+  const prevMonthCells = useMemo(() => buildMonthGrid(prevMonth), [prevMonth]);
+  const nextMonthCells = useMemo(() => buildMonthGrid(nextMonth), [nextMonth]);
 
   useEffect(() => {
-    if (draftLoaded === false) return;
-    if (!restoredOnce) return;
-    if (!saveDraft) return;
-
-    const str = stableStringify(draftPayload);
-    if (str === lastSavedRef.current) return;
-
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-
-    saveTimerRef.current = setTimeout(() => {
-      lastSavedRef.current = str;
-      saveDraft(draftPayload);
-    }, 300);
-
-    return () => {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    };
-  }, [draftPayload, draftLoaded, restoredOnce, saveDraft]);
-
-  // When you return to this tab after planting, keep it clean
-  const justPlantedRef = useRef(false);
-  useFocusEffect(
-    useCallback(() => {
-      if (justPlantedRef.current) {
-        justPlantedRef.current = false;
-        resetWizard();
-      }
-      return () => {};
-    }, [resetWizard])
-  );
-
-  // --- Step validation
-  const stepValid = useMemo(() => {
-    if (step === 0) return true;
-
-    if (step === 1) {
-      if (name.trim().length < 2) return false;
-      if (!categories.length) return false;
-      return true;
+    if (isValidISODate(completionEndDate.trim())) {
+      const [year, month] = completionEndDate.trim().split("-").map(Number);
+      setCalendarMonth(new Date(year, month - 1, 1));
     }
+  }, [completionEndDate]);
 
-    if (step === 2) {
-      if (kind === "numeric") return Number(target) > 0 && unit.trim().length >= 1;
-      if (kind === "timer") return Number(minutes) > 0;
-      if (kind === "checklist") return checkItems.some((x) => x.text.trim().length >= 2);
-      if (kind === "flex") return Number(flexTarget) > 0 && flexUnit.trim().length >= 1;
-      return true;
-    }
+  useEffect(() => {
+    if (!calendarWidth || !calendarPagerRef.current) return;
+    calendarPagerRef.current.scrollTo({ x: calendarWidth, animated: false });
+  }, [calendarWidth, calendarMonth]);
 
-    if (step === 3) {
-      if (kind === "flex") {
-        if (!isValidDateKey(deadlineKey)) return false;
-        if (benchmarksEnabled) {
-          for (const b of benchmarks) {
-            if (!(Number(b.amount) > 0)) return false;
-            if (!isValidDateKey(b.dateKey)) return false;
-          }
-        }
-        return true;
-      }
-      if (scheduleMode === "custom") return days.length >= 1;
-      return true;
-    }
-
-    return true;
-  }, [
-    step,
-    kind,
-    name,
-    categories,
-    target,
-    unit,
-    minutes,
-    checkItems,
-    flexTarget,
-    flexUnit,
-    deadlineKey,
-    scheduleMode,
-    days,
-    benchmarksEnabled,
-    benchmarks,
-  ]);
-
-  const dots = useMemo(() => {
-    return Array.from({ length: totalSteps }, (_, i) => {
-      const state = i < step ? "done" : i === step ? "active" : "todo";
-      return <Dot key={i} state={state} />;
-    });
-  }, [totalSteps, step]);
-
-  const helpCopy = useMemo(() => {
-    const common = "Tip: You can always edit later.";
-    if (step === 0) return { title: "Choose a goal type", body: "Pick how you want to track it.\n\n" + common };
-    if (step === 1) return { title: "Name + categories", body: "Short + clear.\n\n" + common };
-    if (step === 2) return { title: "Set the target", body: "Define what “done” means.\n\n" + common };
-    if (step === 3)
-      return {
-        title: kind === "flex" ? "Deadline + benchmarks" : "Schedule",
-        body:
-          (kind === "flex"
-            ? "Deadline goals show daily until finished.\n\n"
-            : "Choose the days it should appear.\n\n") + common,
-      };
-    if (step === 4) return { title: "Add a plan", body: "Optional structure helps.\n\n" + common };
-    return { title: "Review + plant", body: "You’re ready.\n\n" + common };
-  }, [step, kind]);
-
-  const saveGoal = async () => {
-    const category = categories[0] || "Custom";
-    const base = {
-      name: name.trim() || "New Goal",
-      category,
-      categories,
-      kind,
-      frequencyLabel,
-      plan: {
-        when: whenStr.trim(),
-        where: whereStr.trim(),
-        cue: cueStr.trim(),
-        reward: rewardStr.trim(),
-        why: whyStr.trim(),
-      },
-    };
-
-    let payload = base;
-
-    if (kind === "completion") {
-      payload = { ...base, schedule: { mode: scheduleMode, days } };
-    } else if (kind === "numeric") {
-      payload = {
-        ...base,
-        schedule: { mode: scheduleMode, days },
-        measurable: { target: Number(target), unit: unit.trim() },
-      };
-    } else if (kind === "timer") {
-      payload = {
-        ...base,
-        schedule: { mode: scheduleMode, days },
-        timer: { targetSeconds: Math.round(Number(minutes) * 60) },
-      };
-    } else if (kind === "checklist") {
-      const cleanItems = checkItems
-        .filter((x) => x.text.trim().length)
-        .map((x, idx) => ({ id: x.id || uid(`c${idx}`), text: x.text.trim() }));
-      payload = { ...base, schedule: { mode: scheduleMode, days }, checklist: { items: cleanItems } };
-    } else if (kind === "flex") {
-      const cleanBenchmarks = (benchmarksEnabled ? benchmarks : [])
-        .filter((b) => Number(b.amount) > 0 && isValidDateKey(b.dateKey))
-        .map((b) => ({ id: b.id || uid("b"), amount: Number(b.amount), dateKey: b.dateKey }));
-      payload = {
-        ...base,
-        schedule: { mode: "floating" },
-        flex: {
-          target: Number(flexTarget),
-          unit: flexUnit.trim(),
-          deadlineKey,
-          warnDays: [7, 3, 1],
-          benchmarks: cleanBenchmarks,
-        },
-      };
-    }
-
-    const id = addGoal(payload);
-    if (clearDraft) await clearDraft();
-    justPlantedRef.current = true;
-    navigation.navigate("Goals", { screen: "Goal", params: { goalId: id } });
+  const selectCalendarDay = (day) => {
+    if (!day) return;
+    const date = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), day);
+    setCompletionEndDate(toISODate(date));
   };
 
-  const goNext = () => setStep((s) => Math.min(totalSteps - 1, s + 1));
-  const goPrev = () => setStep((s) => Math.max(0, s - 1));
-  const showSkip = step === 4;
+  const goPrevMonth = () => {
+    setCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  };
 
-  const bottomPad = Math.max(12, insets.bottom + 8);
+  const goNextMonth = () => {
+    setCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+  };
+
+  const changeCompletionMode = (nextMode) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setCompletionMode(nextMode);
+  };
+
+  const handleCalendarScrollEnd = (event) => {
+    if (!calendarWidth) return;
+    const offsetX = event.nativeEvent.contentOffset.x;
+    const pageIndex = Math.round(offsetX / calendarWidth);
+    if (pageIndex === 0) {
+      goPrevMonth();
+    } else if (pageIndex === 2) {
+      goNextMonth();
+    }
+  };
+
+  const toggleDay = (d) => setDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]));
+
+  const formError = useMemo(() => {
+    if (name.trim().length < 3) return "Give it a short name (at least 3 characters).";
+    if (!selectedIcon) return "Please select an icon.";
+    if (type === "quantity" && (!(Number(target) > 0) || unit.trim().length < 1)) return "Quantity needs a number + unit.";
+    if (!scheduleDays.length) return "Pick at least one day.";
+    if ((completionMode === "date" || completionMode === "both") && !isValidISODate(completionEndDate.trim())) {
+      return "Enter a valid end date (YYYY-MM-DD).";
+    }
+    if ((completionMode === "date" || completionMode === "both") && completionDateMeta && completionDateMeta.daysLeft < 0) {
+      return "End date cannot be in the past.";
+    }
+    if ((completionMode === "amount" || completionMode === "both") && !(Number(completionEndAmount) > 0)) {
+      return "End amount must be greater than 0.";
+    }
+    if (
+      selectedGardenId !== "personal" &&
+      multiUserWateringEnabled &&
+      !(Number(requiredContributors) >= 2)
+    ) {
+      return "Required contributors must be at least 2.";
+    }
+    return "";
+  }, [
+    completionDateMeta,
+    completionEndAmount,
+    completionEndDate,
+    completionMode,
+    multiUserWateringEnabled,
+    name,
+    requiredContributors,
+    scheduleDays,
+    selectedGardenId,
+    selectedIcon,
+    target,
+    type,
+    unit,
+  ]);
+
+  const canSave = !formError;
+
+  const save = async () => {
+    if (!auth.currentUser || isSaving || !canSave) return;
+    setIsSaving(true);
+    try {
+      const goalData = {
+        name: name.trim(),
+        category,
+        isPrivate,
+        icon: selectedIcon,
+        gardenId: selectedGardenId,
+        gardenType: selectedGardenId === "personal" ? "personal" : "shared",
+        sharedGardenId: selectedGardenId === "personal" ? null : selectedGardenId,
+        multiUserWateringEnabled: selectedGardenId !== "personal" ? !!multiUserWateringEnabled : false,
+        requiredContributors:
+          selectedGardenId !== "personal" && multiUserWateringEnabled
+            ? Math.max(2, Math.floor(Number(requiredContributors) || 2))
+            : 1,
+        type,
+        measurable: measurableForType,
+        schedule: { type: mode, days: scheduleDays },
+        frequencyLabel,
+        completionCondition,
+        plan: { when: whenStr.trim(), where: whereStr.trim() },
+        why: whyStr.trim(),
+        createdAt: serverTimestamp(),
+        currentStreak: 0,
+        longestStreak: 0,
+        healthLevel: 3,
+        species: "fern"
+      };
+
+      const userGoalsRef = collection(db, "users", auth.currentUser.uid, "goals");
+      const docRef = await addDoc(userGoalsRef, goalData);
+
+      if (selectedGardenId !== "personal") {
+        await setDoc(
+          doc(db, "sharedGardens", selectedGardenId, "layout", docRef.id),
+          {
+            ...goalData,
+            ownerId: auth.currentUser.uid,
+            sourceGoalId: docRef.id,
+            shelfPosition: null,
+            pageId: null,
+            shelfName: null,
+            slotIndex: null,
+          },
+          { merge: true }
+        );
+      }
+
+      navigation.navigate("Goals", { screen: "Goal", params: { goalId: docRef.id, source: "goals" } });
+    } catch (error) {
+      Alert.alert("Error", "Could not save your goal.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   return (
     <Page>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        {/* Header */}
-        <View style={styles.header}>
-          <Pressable onPress={() => navigation.goBack()} style={styles.headerBtn}>
-            <Text style={styles.headerBtnText}>Cancel</Text>
-          </Pressable>
-
-          <View style={{ alignItems: "center" }}>
-            <Text style={styles.headerTitle}>Plant a Goal</Text>
-            <Text style={styles.headerSub}>{typeTitle}</Text>
+        <View style={styles.headerRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.hTitle}>Plant a goal</Text>
+            <Text style={styles.hSub}>Fill out your goal details below.</Text>
           </View>
-
-          <Pressable onPress={() => setHelpOpen(true)} style={styles.headerBtn}>
-            <Text style={styles.headerBtnText}>Help</Text>
-          </Pressable>
         </View>
 
-        {/* Dots */}
-        <View style={styles.dotsRow}>{dots}</View>
-
-        {/* Content */}
-        <View style={styles.content}>
-          <ScrollView
-            style={{ flex: 1 }}
-            contentContainerStyle={{ paddingBottom: 12 }}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
-          >
-            <View style={styles.card}>
-              {/* STEP 0 — TYPE */}
-              {step === 0 && (
-                <View style={styles.stepBlock}>
-                  <Text style={styles.title}>Choose what you’re growing</Text>
-                  <Text style={styles.helper}>Pick one — the next pages adapt automatically.</Text>
-
-                  <View style={styles.typeGrid}>
-                    {TYPE_CARDS.map((t) => {
-                      const active = kind === t.key;
-                      return (
-                        <Pressable
-                          key={t.key}
-                          onPress={() => setKind(t.key)}
-                          style={[styles.typeCard, active && styles.typeCardActive]}
-                        >
-                          <Text style={[styles.typeTitle, active && styles.typeTitleActive]}>{t.title}</Text>
-                          <Text style={[styles.typeDesc, active && styles.typeDescActive]}>{t.desc}</Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </View>
-              )}
-
-              {/* STEP 1 — BASICS */}
-              {step === 1 && (
-                <View style={styles.stepBlock}>
-                  <Text style={styles.title}>Name your seed</Text>
-                  <Text style={styles.helper}>Short, clear, and motivating.</Text>
-
-                  <Text style={styles.label}>Goal name</Text>
-                  <TextInput
-                    value={name}
-                    onChangeText={setName}
-                    placeholder="Read 5 pages"
-                    placeholderTextColor={theme.muted2}
-                    style={styles.input}
-                  />
-
-                  <Text style={[styles.label, { marginTop: 14 }]}>Categories (choose any)</Text>
-                  <Text style={styles.helperTiny}>Multi-select helps filtering + stats later.</Text>
-
-                  <View style={styles.pillRow}>
-                    {CATEGORY_CHOICES.map((c) => (
-                      <Pill key={c} label={c} active={categories.includes(c)} onPress={() => toggleCategory(c)} />
-                    ))}
-                  </View>
-                </View>
-              )}
-
-              {/* STEP 2 — CONFIG */}
-              {step === 2 && (
-                <View style={styles.stepBlock}>
-                  {kind === "completion" && (
-                    <>
-                      <Text style={styles.title}>Check-off style</Text>
-                      <Text style={styles.helper}>You’ll tap a checkmark to complete today.</Text>
-                    </>
-                  )}
-
-                  {kind === "numeric" && (
-                    <>
-                      <Text style={styles.title}>Set a daily target</Text>
-                      <Text style={styles.helper}>What number counts as “done”?</Text>
-
-                      <View style={styles.twoCol}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.label}>Target</Text>
-                          <TextInput
-                            value={target}
-                            onChangeText={setTarget}
-                            keyboardType="numeric"
-                            placeholder="5"
-                            placeholderTextColor={theme.muted2}
-                            style={styles.input}
-                          />
-                        </View>
-
-                        <View style={{ width: 12 }} />
-
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.label}>Unit</Text>
-                          <TextInput
-                            value={unit}
-                            onChangeText={setUnit}
-                            placeholder="pages"
-                            placeholderTextColor={theme.muted2}
-                            style={styles.input}
-                          />
-                        </View>
-                      </View>
-                    </>
-                  )}
-
-                  {kind === "timer" && (
-                    <>
-                      <Text style={styles.title}>Set a time goal</Text>
-                      <Text style={styles.helper}>How many minutes should count as done?</Text>
-
-                      <Text style={styles.label}>Minutes</Text>
-                      <TextInput
-                        value={minutes}
-                        onChangeText={setMinutes}
-                        keyboardType="numeric"
-                        placeholder="10"
-                        placeholderTextColor={theme.muted2}
-                        style={styles.input}
-                      />
-                    </>
-                  )}
-
-                  {kind === "checklist" && (
-                    <>
-                      <Text style={styles.title}>Checklist items</Text>
-                      <Text style={styles.helper}>Add or remove items — keep it realistic.</Text>
-
-                      {checkItems.slice(0, 8).map((it, idx) => (
-                        <View key={it.id} style={{ marginTop: idx === 0 ? 12 : 10 }}>
-                          <View style={styles.rowBetween}>
-                            <Text style={styles.label}>Item {idx + 1}</Text>
-
-                            <Pressable onPress={() => removeChecklistItem(it.id)} style={styles.smallBtn}>
-                              <Text style={styles.smallBtnText}>Remove</Text>
-                            </Pressable>
-                          </View>
-
-                          <TextInput
-                            value={it.text}
-                            onChangeText={(txt) =>
-                              setCheckItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, text: txt } : x)))
-                            }
-                            placeholder="Example: Stretch"
-                            placeholderTextColor={theme.muted2}
-                            style={styles.input}
-                          />
-                        </View>
-                      ))}
-
-                      <View style={{ marginTop: 12 }}>
-                        <GhostButton label="+ Add checklist item" onPress={addChecklistItem} />
-                      </View>
-                    </>
-                  )}
-
-                  {kind === "flex" && (
-                    <>
-                      <Text style={styles.title}>Flexible progress</Text>
-                      <Text style={styles.helper}>Shows daily until finished.</Text>
-
-                      <View style={styles.twoCol}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.label}>Total target</Text>
-                          <TextInput
-                            value={flexTarget}
-                            onChangeText={setFlexTarget}
-                            keyboardType="numeric"
-                            placeholder="30"
-                            placeholderTextColor={theme.muted2}
-                            style={styles.input}
-                          />
-                        </View>
-
-                        <View style={{ width: 12 }} />
-
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.label}>Unit</Text>
-                          <TextInput
-                            value={flexUnit}
-                            onChangeText={setFlexUnit}
-                            placeholder="pages"
-                            placeholderTextColor={theme.muted2}
-                            style={styles.input}
-                          />
-                        </View>
-                      </View>
-                    </>
-                  )}
-                </View>
-              )}
-
-              {/* STEP 3 — SCHEDULE / DEADLINE */}
-              {step === 3 && (
-                <View style={styles.stepBlock}>
-                  {kind === "flex" ? (
-                    <>
-                      <Text style={styles.title}>Choose a deadline</Text>
-                      <Text style={styles.helper}>We’ll keep it visible each day until it’s complete.</Text>
-
-                      <View style={styles.pillRow}>
-                        <Pill label="End of week" active={deadlinePreset === "week"} onPress={() => setDeadlinePreset("week")} />
-                        <Pill label="End of month" active={deadlinePreset === "month"} onPress={() => setDeadlinePreset("month")} />
-                        <Pill label="Custom" active={deadlinePreset === "custom"} onPress={() => setDeadlinePreset("custom")} />
-                      </View>
-
-                      {deadlinePreset === "custom" && (
-                        <>
-                          <Text style={[styles.helperTiny, { marginTop: 10 }]}>Date (YYYY-MM-DD)</Text>
-                          <TextInput
-                            value={customDeadline}
-                            onChangeText={setCustomDeadline}
-                            placeholder="2026-03-28"
-                            placeholderTextColor={theme.muted2}
-                            style={styles.input}
-                          />
-                          {!isValidDateKey(customDeadline) && <Text style={styles.warnText}>Enter a valid date like 2026-03-28</Text>}
-                        </>
-                      )}
-
-                      <View style={{ marginTop: 14 }}>
-                        <View style={styles.rowBetween}>
-                          <Text style={styles.label}>Benchmarks (optional)</Text>
-                          <Pressable
-                            onPress={() => setBenchmarksEnabled((v) => !v)}
-                            style={[styles.smallToggle, benchmarksEnabled && styles.smallToggleActive]}
-                          >
-                            <Text style={[styles.smallToggleText, benchmarksEnabled && styles.smallToggleTextActive]}>
-                              {benchmarksEnabled ? "On" : "Off"}
-                            </Text>
-                          </Pressable>
-                        </View>
-
-                        {benchmarksEnabled && (
-                          <>
-                            {benchmarks.map((b, idx) => (
-                              <View key={b.id} style={{ marginTop: 10 }}>
-                                <View style={styles.rowBetween}>
-                                  <Text style={styles.helperTiny}>Benchmark {idx + 1}</Text>
-                                  <Pressable onPress={() => removeBenchmark(b.id)} style={styles.smallBtn}>
-                                    <Text style={styles.smallBtnText}>Remove</Text>
-                                  </Pressable>
-                                </View>
-
-                                <View style={styles.twoCol}>
-                                  <View style={{ flex: 1 }}>
-                                    <Text style={styles.label}>Amount</Text>
-                                    <TextInput
-                                      value={String(b.amount ?? "")}
-                                      onChangeText={(txt) => updateBenchmark(b.id, { amount: txt })}
-                                      keyboardType="numeric"
-                                      placeholder="10"
-                                      placeholderTextColor={theme.muted2}
-                                      style={styles.input}
-                                    />
-                                  </View>
-
-                                  <View style={{ width: 12 }} />
-
-                                  <View style={{ flex: 1 }}>
-                                    <Text style={styles.label}>Date</Text>
-                                    <TextInput
-                                      value={String(b.dateKey ?? "")}
-                                      onChangeText={(txt) => updateBenchmark(b.id, { dateKey: txt })}
-                                      placeholder="2026-03-10"
-                                      placeholderTextColor={theme.muted2}
-                                      style={styles.input}
-                                    />
-                                  </View>
-                                </View>
-
-                                {(!isValidDateKey(b.dateKey) || !(Number(b.amount) > 0)) && (
-                                  <Text style={styles.warnText}>Benchmark needs a valid date + amount.</Text>
-                                )}
-                              </View>
-                            ))}
-
-                            <View style={{ marginTop: 12 }}>
-                              <GhostButton label="+ Add benchmark" onPress={addBenchmark} />
-                            </View>
-                          </>
-                        )}
-                      </View>
-                    </>
-                  ) : (
-                    <>
-                      <Text style={styles.title}>When should it appear?</Text>
-                      <Text style={styles.helper}>Pick the days it should show up.</Text>
-
-                      <View style={styles.pillRow}>
-                        <Pill label="Everyday" active={scheduleMode === "everyday"} onPress={() => setScheduleMode("everyday")} />
-                        <Pill label="Weekdays" active={scheduleMode === "weekdays"} onPress={() => setScheduleMode("weekdays")} />
-                        <Pill label="Custom" active={scheduleMode === "custom"} onPress={() => setScheduleMode("custom")} />
-                      </View>
-
-                      {scheduleMode === "custom" && (
-                        <View style={{ marginTop: 12 }}>
-                          <Text style={styles.label}>Days</Text>
-                          <View style={styles.daysRow}>
-                            {DAY_LABELS.map((lbl, idx) => (
-                              <Pill key={lbl} label={lbl} active={days.includes(idx)} onPress={() => toggleDay(idx)} />
-                            ))}
-                          </View>
-                        </View>
-                      )}
-                    </>
-                  )}
-                </View>
-              )}
-
-              {/* STEP 4 — PLAN (optional / skippable) */}
-              {step === 4 && (
-                <View style={styles.stepBlock}>
-                  <Text style={styles.title}>Add sunlight (optional)</Text>
-                  <Text style={styles.helper}>A tiny plan makes this easier — you can skip.</Text>
-
-                  <Text style={styles.label}>When</Text>
-                  <TextInput
-                    value={whenStr}
-                    onChangeText={setWhenStr}
-                    placeholder="Morning"
-                    placeholderTextColor={theme.muted2}
-                    style={styles.input}
-                  />
-
-                  <Text style={styles.label}>Where</Text>
-                  <TextInput
-                    value={whereStr}
-                    onChangeText={setWhereStr}
-                    placeholder="Desk"
-                    placeholderTextColor={theme.muted2}
-                    style={styles.input}
-                  />
-
-                  <Text style={styles.label}>Cue (optional)</Text>
-                  <TextInput
-                    value={cueStr}
-                    onChangeText={setCueStr}
-                    placeholder="After brushing teeth…"
-                    placeholderTextColor={theme.muted2}
-                    style={styles.input}
-                  />
-
-                  <Text style={styles.label}>Reward (optional)</Text>
-                  <TextInput
-                    value={rewardStr}
-                    onChangeText={setRewardStr}
-                    placeholder="Tea, 5-minute break…"
-                    placeholderTextColor={theme.muted2}
-                    style={styles.input}
-                  />
-
-                  <Text style={styles.label}>Why this matters (optional)</Text>
-                  <TextInput
-                    value={whyStr}
-                    onChangeText={setWhyStr}
-                    placeholder="Because I want to…"
-                    placeholderTextColor={theme.muted2}
-                    style={[styles.input, { height: 80 }]}
-                    multiline
-                  />
-                </View>
-              )}
-
-              {/* STEP 5 — REVIEW */}
-              {step === 5 && (
-                <View style={styles.stepBlock}>
-                  <Text style={styles.title}>Review</Text>
-                  <Text style={styles.helper}>Everything looks good? Plant it.</Text>
-
-                  <View style={{ height: 10 }} />
-
-                  <Text style={styles.reviewLine}>
-                    <Text style={styles.reviewLabel}>Goal:</Text> {name || "—"}
-                  </Text>
-
-                  <Text style={styles.reviewLine}>
-                    <Text style={styles.reviewLabel}>Type:</Text> {typeTitle}
-                  </Text>
-
-                  <Text style={styles.reviewLine}>
-                    <Text style={styles.reviewLabel}>Category:</Text> {categories?.length ? categories.join(", ") : "—"}
-                  </Text>
-
-                  <Text style={styles.reviewLine}>
-                    <Text style={styles.reviewLabel}>Schedule:</Text> {frequencyLabel}
-                  </Text>
-
-                  {kind === "numeric" ? (
-                    <Text style={styles.reviewLine}>
-                      <Text style={styles.reviewLabel}>Target:</Text> {target} {unit}
-                    </Text>
-                  ) : null}
-
-                  {kind === "timer" ? (
-                    <Text style={styles.reviewLine}>
-                      <Text style={styles.reviewLabel}>Time:</Text> {minutes} min
-                    </Text>
-                  ) : null}
-
-                  {kind === "checklist" ? (
-                    <View style={{ marginTop: 10 }}>
-                      <Text style={styles.reviewLabel}>Checklist:</Text>
-                      {checkItems
-                        .filter((x) => x.text.trim().length)
-                        .slice(0, 8)
-                        .map((x) => (
-                          <Text key={x.id} style={styles.reviewBullet}>
-                            • {x.text.trim()}
-                          </Text>
-                        ))}
-                    </View>
-                  ) : null}
-
-                  {kind === "flex" ? (
-                    <Text style={styles.reviewLine}>
-                      <Text style={styles.reviewLabel}>Deadline:</Text> {deadlineKey}
-                    </Text>
-                  ) : null}
-
-                  {(whenStr || whereStr || cueStr || rewardStr) ? (
-                    <View style={{ marginTop: 12 }}>
-                      <Text style={styles.reviewLabel}>Plan:</Text>
-                      <Text style={styles.reviewSmall}>
-                        {[
-                          whenStr && `When: ${whenStr}`,
-                          whereStr && `Where: ${whereStr}`,
-                          cueStr && `Cue: ${cueStr}`,
-                          rewardStr && `Reward: ${rewardStr}`,
-                        ]
-                          .filter(Boolean)
-                          .join(" • ")}
-                      </Text>
-                    </View>
-                  ) : null}
-                </View>
-              )}
+        <ScrollView style={styles.contentArea} contentContainerStyle={styles.formScrollContent} keyboardShouldPersistTaps="handled" onScroll={() => Keyboard.dismiss()}>
+          <View style={styles.card}>
+            <Text style={styles.sectionLabel}>Goal name</Text>
+            <TextInput value={name} onChangeText={setName} placeholder="Example: Read" placeholderTextColor={theme.muted2} style={styles.input} />
+            <View style={styles.gap16} />
+            <Text style={styles.sectionLabel}>Category</Text>
+            <View style={styles.chipWrap}>
+              {CATEGORIES.map((c) => (
+                <Chip key={c} label={c} active={category === c} onPress={() => setCategory(c)} />
+              ))}
             </View>
-          </ScrollView>
+            <View style={styles.switchRow}>
+              <Text style={styles.switchLabel}>Private goal</Text>
+              <Switch value={isPrivate} onValueChange={setIsPrivate} trackColor={{ false: theme.outline, true: theme.accent }} />
+            </View>
 
-          {/* Buttons fixed below scroll, safely padded for tab bar */}
-          <View style={[styles.footer, { paddingBottom: bottomPad }]}>
-            <GhostButton
-              label={step === 0 ? "Back" : "Previous"}
-              onPress={() => (step === 0 ? navigation.goBack() : goPrev())}
-            />
+            <View style={styles.gap16} />
+            <Text style={styles.sectionLabel}>Garden</Text>
+            <View style={styles.chipWrap}>
+              <Chip
+                label="Personal"
+                active={selectedGardenId === "personal"}
+                onPress={() => setSelectedGardenId("personal")}
+              />
+              {sharedGardens.map((garden) => (
+                <Chip
+                  key={garden.id}
+                  label={garden.name || "Shared Garden"}
+                  active={selectedGardenId === garden.id}
+                  onPress={() => setSelectedGardenId(garden.id)}
+                />
+              ))}
+            </View>
+            <Text style={[styles.helperText, { marginTop: 10, marginBottom: 0 }]}>Defaults to your personal garden.</Text>
 
-            {showSkip && <GhostButton label="Skip" onPress={() => setStep(5)} />}
-
-            {step < totalSteps - 1 ? (
-              <PrimaryButton label="Next" onPress={goNext} disabled={!stepValid} />
-            ) : (
-              <PrimaryButton label="Plant Goal" onPress={saveGoal} disabled={!stepValid} />
+            {selectedGardenId !== "personal" && (
+              <View style={styles.switchRow}>
+                <Text style={styles.switchLabel}>Multi-user watering</Text>
+                <Switch
+                  value={multiUserWateringEnabled}
+                  onValueChange={setMultiUserWateringEnabled}
+                  trackColor={{ false: theme.outline, true: theme.accent }}
+                />
+              </View>
             )}
+
+            {selectedGardenId !== "personal" && multiUserWateringEnabled && (
+              <View style={styles.contributorRow}>
+                <Text style={styles.switchLabel}>Required contributors</Text>
+                <TextInput
+                  value={requiredContributors}
+                  onChangeText={setRequiredContributors}
+                  keyboardType="number-pad"
+                  style={[styles.input, styles.contributorInput]}
+                  placeholder="2"
+                  placeholderTextColor={theme.muted2}
+                />
+              </View>
+            )}
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.sectionLabel}>Icon</Text>
+            <Pressable style={styles.iconPickerButton} onPress={() => setShowIconPicker(true)}>
+              <View style={styles.iconPickerButtonLeft}>
+                <View style={styles.iconPickerPreview}>
+                  <GoalIcon name={selectedIcon} size={24} color={theme.accent} />
+                </View>
+                <View style={styles.iconPickerTextWrap}>
+                  <Text style={styles.iconPickerTitle}>Choose icon</Text>
+                  <Text style={styles.iconPickerSubtitle} numberOfLines={1}>{selectedIcon}</Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={theme.muted} />
+            </Pressable>
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.sectionLabel}>Tracking</Text>
+            <Segmented left={{ label: "Checkmark", value: "completion" }} right={{ label: "Quantity", value: "quantity" }} value={type} onChange={setType} />
+            {type === "quantity" && (
+              <View style={styles.row}>
+                <TextInput value={target} onChangeText={setTarget} keyboardType="numeric" style={[styles.input, { flex: 1, marginRight: 10 }]} />
+                <TextInput value={unit} onChangeText={setUnit} placeholder="minutes" style={[styles.input, { flex: 1 }]} />
+              </View>
+            )}
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.sectionLabel}>Schedule</Text>
+            <View style={styles.row}>
+              <Chip label="Every day" active={mode === "everyday"} onPress={() => setMode("everyday")} />
+              <Chip label="Weekdays" active={mode === "weekdays"} onPress={() => setMode("weekdays")} />
+              <Chip label="Custom" active={mode === "days"} onPress={() => setMode("days")} />
+            </View>
+            {mode === "days" && (
+              <View style={styles.daysGrid}>
+                {DAYS.map((d) => (
+                  <Pressable key={d.label} onPress={() => toggleDay(d.day)} style={[styles.dayPill, days.includes(d.day) && styles.dayPillActive]}>
+                    <Text style={[styles.dayText, days.includes(d.day) && styles.dayTextActive]}>{d.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.sectionLabel}>Plan (optional)</Text>
+            <TextInput value={whenStr} onChangeText={setWhenStr} placeholder="After breakfast..." style={styles.input} />
+            <View style={styles.gap16} />
+            <TextInput value={whereStr} onChangeText={setWhereStr} placeholder="At home..." style={styles.input} />
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.sectionLabel}>Why (optional)</Text>
+            <TextInput value={whyStr} onChangeText={setWhyStr} placeholder="One sentence..." style={[styles.input, styles.textArea]} multiline />
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.sectionLabel}>Goal completion</Text>
+            <View style={styles.completionModeRow}>
+              <Chip label="No end" active={completionMode === "none"} onPress={() => changeCompletionMode("none")} />
+              <Chip label="End date" active={completionMode === "date"} onPress={() => changeCompletionMode("date")} />
+              <Chip label="End amount" active={completionMode === "amount"} onPress={() => changeCompletionMode("amount")} />
+              <Chip label="Both" active={completionMode === "both"} onPress={() => changeCompletionMode("both")} />
+            </View>
+
+            {(completionMode === "date" || completionMode === "both") && (
+              <>
+                <Text style={styles.helperText}>Swipe the calendar left/right to move by month.</Text>
+                <View style={styles.calendarCard}>
+                  <ScrollView
+                    ref={calendarPagerRef}
+                    horizontal
+                    pagingEnabled
+                    showsHorizontalScrollIndicator={false}
+                    bounces={false}
+                    onLayout={(e) => setCalendarWidth(e.nativeEvent.layout.width)}
+                    onMomentumScrollEnd={handleCalendarScrollEnd}
+                    scrollEventThrottle={16}
+                  >
+                    {[{ month: prevMonth, cells: prevMonthCells }, { month: calendarMonth, cells: calendarCells }, { month: nextMonth, cells: nextMonthCells }].map((entry, pageIdx) => (
+                      <View key={`${entry.month.getFullYear()}-${entry.month.getMonth()}-${pageIdx}`} style={[styles.calendarPage, { width: calendarWidth || undefined }]}> 
+                        <View style={styles.calendarHeader}>
+                          <Text style={styles.calendarHeaderText}>{monthLabel(entry.month)}</Text>
+                        </View>
+
+                        <View style={styles.calendarWeekHeader}>
+                          {WEEKDAY_LABELS.map((label, idx) => (
+                            <Text key={`${label}-${idx}`} style={styles.calendarWeekHeaderText}>{label}</Text>
+                          ))}
+                        </View>
+
+                        <View style={styles.calendarGrid}>
+                          {entry.cells.map((day, idx) => {
+                            const dayDate = day
+                              ? new Date(entry.month.getFullYear(), entry.month.getMonth(), day)
+                              : null;
+                            const todayStart = toStartOfDay(new Date());
+                            const isToday = !!dayDate && toStartOfDay(dayDate).getTime() === todayStart.getTime();
+                            const isPast = !!dayDate && toStartOfDay(dayDate).getTime() < todayStart.getTime();
+                            const isSelected =
+                              !!day &&
+                              completionEndDate ===
+                                toISODate(new Date(entry.month.getFullYear(), entry.month.getMonth(), day));
+
+                            return (
+                              <Pressable
+                                key={`${pageIdx}-${idx}-${day || "blank"}`}
+                                onPress={() => day && setCompletionEndDate(toISODate(new Date(entry.month.getFullYear(), entry.month.getMonth(), day)))}
+                                disabled={!day}
+                                style={[
+                                  styles.calendarCell,
+                                  isPast && styles.calendarCellPast,
+                                  isToday && styles.calendarCellToday,
+                                  isSelected && styles.calendarCellSelected,
+                                  !day && styles.calendarCellEmpty,
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    styles.calendarCellText,
+                                    isPast && styles.calendarCellTextPast,
+                                    isSelected && styles.calendarCellTextSelected,
+                                  ]}
+                                >
+                                  {day || ""}
+                                </Text>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                      </View>
+                    ))}
+                  </ScrollView>
+                </View>
+
+                <TextInput
+                  value={completionEndDate}
+                  onChangeText={(text) => setCompletionEndDate(formatDateInput(text))}
+                  placeholder="YYYY-MM-DD"
+                  keyboardType="number-pad"
+                  maxLength={10}
+                  style={[styles.input, styles.completionInput]}
+                />
+                {!!completionDateMeta && (
+                  <View style={styles.datePreviewBox}>
+                    <Text style={styles.datePreviewText}>
+                      Ends {completionDateMeta.readable}
+                      {completionDateMeta.daysLeft === 0
+                        ? " (today)"
+                        : completionDateMeta.daysLeft > 0
+                        ? ` (${completionDateMeta.daysLeft} days left)`
+                        : ` (${Math.abs(completionDateMeta.daysLeft)} days ago)`}
+                    </Text>
+                  </View>
+                )}
+              </>
+            )}
+
+            {(completionMode === "amount" || completionMode === "both") && (
+              <View style={styles.row}>
+                <TextInput
+                  value={completionEndAmount}
+                  onChangeText={setCompletionEndAmount}
+                  keyboardType="numeric"
+                  placeholder="Total amount"
+                  style={[styles.input, styles.completionInput, { flex: 1, marginRight: 10 }]}
+                />
+                <TextInput
+                  value={completionEndUnit}
+                  onChangeText={setCompletionEndUnit}
+                  placeholder="times"
+                  style={[styles.input, styles.completionInput, { flex: 1 }]}
+                />
+              </View>
+            )}
+          </View>
+
+          <View style={styles.card}>
+            <View style={styles.reviewRow}><Text style={styles.reviewLabel}>Icon</Text><GoalIcon name={selectedIcon} size={22} color={theme.accent} /></View>
+            <View style={styles.reviewRow}><Text style={styles.reviewLabel}>Name</Text><Text style={styles.reviewValue}>{name || "—"}</Text></View>
+            <View style={styles.reviewRow}><Text style={styles.reviewLabel}>Schedule</Text><Text style={styles.reviewValue}>{frequencyLabel}</Text></View>
+            <View style={styles.reviewRow}><Text style={styles.reviewLabel}>Garden</Text><Text style={styles.reviewValue}>{selectedGardenName}</Text></View>
+            {selectedGardenId !== "personal" && (
+              <View style={styles.reviewRow}><Text style={styles.reviewLabel}>Multi-user</Text><Text style={styles.reviewValue}>{multiUserWateringEnabled ? "Enabled" : "Disabled"}</Text></View>
+            )}
+            {selectedGardenId !== "personal" && multiUserWateringEnabled && (
+              <View style={styles.reviewRow}><Text style={styles.reviewLabel}>Required users</Text><Text style={styles.reviewValue}>{Math.max(2, Math.floor(Number(requiredContributors) || 2))}</Text></View>
+            )}
+          </View>
+
+          {!!formError && (
+            <View style={styles.errorInline}>
+              <Text style={styles.errorInlineText}>{formError}</Text>
+            </View>
+          )}
+        </ScrollView>
+
+        <View style={styles.footer}>
+          <Button variant="secondary" label="Cancel" onPress={() => navigation.goBack()} disabled={isSaving} />
+          <View style={{ width: 10 }} />
+          <Button
+            variant="primary"
+            label={isSaving ? "Saving..." : "Save Goal"}
+            onPress={save}
+            disabled={isSaving || !canSave}
+          />
+        </View>
+
+        <Modal visible={showIconPicker} animationType="slide" presentationStyle="fullScreen">
+          <View style={styles.iconModalScreen}>
+            <View style={styles.iconModalHeader}>
+              <Pressable onPress={() => setShowIconPicker(false)} style={styles.iconModalHeaderBtn}>
+                <Ionicons name="close" size={22} color={theme.text} />
+              </Pressable>
+              <View style={styles.iconModalHeaderCenter}>
+                <Text style={styles.iconModalTitle}>Choose an icon</Text>
+                <Text style={styles.iconModalSubTitle}>{filteredIcons.length} icons</Text>
+              </View>
+              <Pressable onPress={() => setShowIconPicker(false)} style={styles.iconModalDoneBtn}>
+                <Text style={styles.iconModalDoneText}>Done</Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.iconModalSearchWrap}>
+              <View style={[styles.searchBar, styles.iconModalSearchBar]}>
+                <Ionicons name="search" size={18} color={theme.muted} />
+                <TextInput
+                  value={searchTerm}
+                  onChangeText={setSearchTerm}
+                  placeholder="Search icons..."
+                  placeholderTextColor={theme.muted2}
+                  style={styles.searchInput}
+                  autoCapitalize="none"
+                  autoFocus
+                />
+                {!!searchTerm && (
+                  <Pressable onPress={() => setSearchTerm("")} hitSlop={8}>
+                    <Ionicons name="close-circle" size={18} color={theme.muted} />
+                  </Pressable>
+                )}
+              </View>
+              <View style={styles.iconSelectedRow}>
+                <Text style={styles.iconSelectedRowLabel}>Selected</Text>
+                <View style={styles.iconSelectedPill}>
+                  <GoalIcon name={selectedIcon} size={14} color="#FFFFFF" />
+                  <Text style={styles.iconSelectedPillText}>{selectedIcon}</Text>
+                </View>
+              </View>
+            </View>
+
+            <ScrollView
+              style={styles.iconModalList}
+              contentContainerStyle={styles.iconGrid}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+              onScroll={() => Keyboard.dismiss()}
+            >
+              <View style={styles.iconGridWrap}>
+                {filteredIcons.map((item) => (
+                  <IconItem
+                    key={item}
+                    iconName={item}
+                    isActive={selectedIcon === item}
+                    onSelect={(iconName) => {
+                      setSelectedIcon(iconName);
+                      setShowIconPicker(false);
+                    }}
+                  />
+                ))}
+              </View>
+            </ScrollView>
           </View>
         </View>
 
@@ -1081,130 +948,211 @@ export default function AddGoalScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  // Header hierarchy
-  headerRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 10 },
-  hTitle: { fontSize: 25, fontWeight: "800", color: theme.text },
-  hSub: { marginTop: 8, fontSize: 15, fontWeight: "600", color: theme.muted2, lineHeight: 16 },
-
-  helpBtn: {
-    height: 36,
-    paddingHorizontal: 12,
+  btnBase: {
+    height: 50,
     borderRadius: theme.radius,
-    backgroundColor: theme.surface,
     alignItems: "center",
     justifyContent: "center",
+    flex: 1,
+    borderWidth: 1,
+    borderColor: "transparent",
   },
-  helpBtnText: { fontSize: 12, fontWeight: "700", color: theme.muted },
-
-  // Progress dots
-  dotsRow: { flexDirection: "row", alignItems: "center", marginBottom: 12, marginTop: 15 },
+  btnPrimary: {
+    backgroundColor: theme.text,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.18,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  btnSecondary: { backgroundColor: theme.surface, borderColor: theme.outline },
+  btnTextBase: { fontSize: 16, fontWeight: "800" },
+  btnTextPrimary: { color: theme.bg },
+  btnTextSecondary: { color: theme.text },
+  headerRow: { flexDirection: "row", marginBottom: 10 },
+  hTitle: { fontSize: 20, fontWeight: "800", color: theme.text },
+  hSub: { marginTop: 4, fontSize: 12, fontWeight: "600", color: theme.muted },
+  dotsRow: { flexDirection: "row", alignItems: "center", marginBottom: 12 },
   dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: theme.outline, marginRight: 8 },
   dotDone: { backgroundColor: theme.text2 },
   dotActive: { backgroundColor: theme.accent },
-
-  content: { flex: 1, minHeight: 0 },
-
-  // Card holds page content, footer sits under it with breathing room
-  card: { backgroundColor: theme.surface, borderRadius: theme.radius, padding: 16 },
-  stepBlock: { gap: 0 },
-
-  // Type scale
-  sectionLabel: { fontSize: 22, fontWeight: "800", color: theme.muted, marginBottom: 6 },
-  sectionHelper: { fontSize: 13, fontWeight: "600", color: theme.card, lineHeight: 16},
-
-  input: {
-    marginTop: 8,
-    height: 52,
-    borderRadius: theme.radius,
+  contentArea: { flex: 1 },
+  formScrollContent: { paddingBottom: 12 },
+  card: { backgroundColor: theme.surface, borderRadius: theme.radius, padding: 16, marginBottom: 10 },
+  footer: { flexDirection: "row", paddingTop: 10, paddingBottom: 8 },
+  sectionLabel: { fontSize: 13, fontWeight: "800", color: theme.text, marginBottom: 6 },
+  switchRow: { marginTop: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  contributorRow: { marginTop: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  switchLabel: { fontSize: 13, fontWeight: "700", color: theme.text },
+  helperText: { fontSize: 12, color: theme.muted, marginBottom: 8 },
+  completionModeRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 8, marginBottom: 10 },
+  calendarCard: {
     backgroundColor: theme.surface2,
-    paddingHorizontal: 16,
-    fontSize: 16,
-    fontWeight: "800",
-    color: theme.text,
-    marginTop: 12
+    borderRadius: theme.radius,
+    padding: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: theme.outline,
   },
-
-  warnText: { marginTop: 6, fontSize: 11, fontWeight: "900", color: theme.dangerText },
-
-  pillRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 10 },
-  pill: { height: 38, paddingHorizontal: 14, borderRadius: theme.radius, backgroundColor: theme.surface2, alignItems: "center", justifyContent: "center" },
-  pillActive: { backgroundColor: theme.accent },
-  pillText: { fontSize: 14, fontWeight: "800", color: theme.text },
-  pillTextActive: { color: theme.bg },
-
-  typeGrid: { marginTop: 12, gap: 10 },
-  typeCard: { backgroundColor: theme.surface2, borderRadius: theme.radius, padding: 12 },
-  typeCardActive: { backgroundColor: theme.accent },
-  typeTitle: { fontSize: 15, fontWeight: "900", color: theme.text },
-  typeTitleActive: { color: theme.bg },
-  typeDesc: { marginTop: 6, fontSize: 14, fontWeight: "700", color: theme.muted, lineHeight: 20 },
-  typeDescActive: { color: theme.bg },
-
-  twoCol: { flexDirection: "row", marginTop: 8 },
-  daysRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 },
-
-  rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-
-  previewRow: {
-    marginTop: 14,
-    backgroundColor: theme.surface2,
+  calendarHeader: {
+    alignItems: "center",
+    marginBottom: 10,
+    paddingBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.outline,
+  },
+  calendarHeaderText: { fontSize: 15, fontWeight: "800", color: theme.text },
+  calendarWeekHeader: { flexDirection: "row", marginBottom: 8 },
+  calendarWeekHeaderText: { flex: 1, textAlign: "center", fontSize: 11, color: theme.muted, fontWeight: "700" },
+  calendarPage: { paddingHorizontal: 2, minHeight: 318 },
+  calendarGrid: { flexDirection: "row", flexWrap: "wrap" },
+  calendarCell: {
+    width: `${100 / 7}%`,
+    aspectRatio: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 8,
+    marginBottom: 6,
+  },
+  calendarCellEmpty: { opacity: 0 },
+  calendarCellPast: { opacity: 0.55 },
+  calendarCellToday: { borderWidth: 1, borderColor: theme.accent },
+  calendarCellSelected: { backgroundColor: theme.accent, borderWidth: 0 },
+  calendarCellText: { fontSize: 12, color: theme.text, fontWeight: "700" },
+  calendarCellTextPast: { color: theme.muted },
+  calendarCellTextSelected: { color: theme.bg },
+  calendarQuickActions: { flexDirection: "row", flexWrap: "wrap", marginTop: 10, gap: 10 },
+  datePreviewBox: { marginTop: 10, backgroundColor: theme.surface2, borderRadius: theme.radius, padding: 10 },
+  datePreviewText: { fontSize: 12, color: theme.text, fontWeight: "700" },
+  completionInput: { marginTop: 2 },
+  input: { backgroundColor: theme.surface2, borderRadius: theme.radius, paddingHorizontal: 14, height: 46, fontSize: 14, color: theme.text },
+  contributorInput: { width: 82, textAlign: "center", paddingHorizontal: 8 },
+  textArea: { height: 96, paddingTop: 12, textAlignVertical: "top" },
+  gap16: { height: 16 },
+  chipWrap: { flexDirection: "row", flexWrap: "wrap", marginTop: 10, gap: 10 },
+  chip: { height: 34, paddingHorizontal: 12, borderRadius: theme.radius, backgroundColor: theme.surface2, justifyContent: "center" },
+  chipActive: { backgroundColor: theme.accent },
+  chipText: { fontSize: 12, fontWeight: "700", color: theme.text },
+  chipTextActive: { color: theme.bg },
+  segmentWrap: { flexDirection: "row", backgroundColor: theme.surface2, borderRadius: theme.radius, padding: 4, marginTop: 10 },
+  segment: { flex: 1, height: 40, borderRadius: theme.radius, alignItems: "center", justifyContent: "center" },
+  segmentActive: { backgroundColor: theme.accent },
+  segmentText: { fontSize: 12, fontWeight: "700", color: theme.text },
+  segmentTextActive: { color: theme.bg },
+  row: { flexDirection: "row", marginTop: 10 },
+  daysGrid: { flexDirection: "row", flexWrap: "wrap", marginTop: 10, gap: 10 },
+  dayPill: { minWidth: 92, height: 40, borderRadius: theme.radiusSm, backgroundColor: theme.surface2, alignItems: "center", justifyContent: "center" },
+  dayPillActive: { backgroundColor: theme.accent },
+  dayText: { fontSize: 12, fontWeight: "700", color: theme.text },
+  dayTextActive: { color: theme.bg },
+  iconPickerButton: {
+    marginTop: 6,
+    minHeight: 68,
     borderRadius: theme.radius,
+    backgroundColor: theme.surface2,
     paddingHorizontal: 14,
-    height: 44,
+    paddingVertical: 12,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  previewLabel: { fontSize: 12, fontWeight: "700", color: theme.text },
-  previewValue: { fontSize: 12, fontWeight: "700", color: theme.accent },
-
-  smallToggle: { height: 30, paddingHorizontal: 10, borderRadius: theme.radiusSm, backgroundColor: theme.surface2, alignItems: "center", justifyContent: "center" },
-  smallToggleActive: { backgroundColor: theme.accent },
-  smallToggleText: { fontSize: 12, fontWeight: "900", color: theme.muted },
-  smallToggleTextActive: { color: theme.bg },
-
-  inlineLink: { marginTop: 8, alignSelf: "flex-start" },
-  inlineLinkText: { fontSize: 12, fontWeight: "700", color: theme.muted, textDecorationLine: "underline" },
-
-  // Errors
-  errorInline: {
-    marginTop: 10,
-    backgroundColor: theme.dangerBg,
-    borderRadius: theme.radius,
-    padding: 12,
-  },
-  errorInlineText: { color: theme.dangerText, fontSize: 12, fontWeight: "700", lineHeight: 16 },
-
-  errorBox: { backgroundColor: theme.dangerBg, borderRadius: theme.radius, padding: 12 },
-  errorTitle: { fontWeight: "800", color: theme.dangerText },
-  errorText: { marginTop: 6, fontWeight: "700", color: theme.dangerText, lineHeight: 16 },
-
-  // Buttons
-  btnBase: { flex: 1, height: 48, borderRadius: theme.radius, alignItems: "center", justifyContent: "center" },
-  btnPrimary: { backgroundColor: theme.accent },
-  btnSecondary: { backgroundColor: theme.surface },
-  btnTextBase: { fontSize: 14 },
-  btnTextPrimary: { color: theme.bg, fontWeight: "800" },
-  btnTextSecondary: { color: theme.muted, fontWeight: "800" },
-
-  cancelBtn: {
-    marginTop: 10,
-    height: 46,
-    borderRadius: theme.radius,
-    backgroundColor: theme.surface,
+  iconPickerButtonLeft: { flexDirection: "row", alignItems: "center", flex: 1 },
+  iconPickerPreview: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.08)",
     alignItems: "center",
     justifyContent: "center",
+    marginRight: 12,
   },
-  cancelText: { color: theme.muted, fontWeight: "800", fontSize: 14 },
-
-  // Review
+  iconPickerTextWrap: { flex: 1 },
+  iconPickerTitle: { fontSize: 14, fontWeight: "800", color: theme.text },
+  iconPickerSubtitle: { fontSize: 12, fontWeight: "600", color: theme.muted, marginTop: 3 },
+  searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.surface2, borderRadius: 12, paddingHorizontal: 12, height: 45, marginBottom: 10 },
+  searchInput: { flex: 1, marginLeft: 8, fontSize: 14, color: theme.text },
+  iconList: { maxHeight: 260 },
+  iconGrid: { paddingBottom: 20 },
+  iconGridWrap: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
+  iconBox: {
+    width: '23.5%',
+    height: 84,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#111111',
+    marginBottom: 10,
+    paddingTop: 10,
+    paddingHorizontal: 6,
+  },
+  iconBoxActive: { backgroundColor: '#111111', borderColor: '#111111', elevation: 4 },
+  iconSelectedBadge: {
+    position: 'absolute',
+    right: 6,
+    top: 6,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#111111',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconModalScreen: { flex: 1, backgroundColor: theme.bg },
+  iconModalHeader: {
+    paddingTop: Platform.OS === "ios" ? 58 : 28,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderBottomWidth: 1,
+    borderBottomColor: theme.outline,
+  },
+  iconModalHeaderBtn: { minWidth: 40, height: 36, alignItems: 'center', justifyContent: 'center' },
+  iconModalHeaderCenter: { flex: 1, alignItems: 'center' },
+  iconModalTitle: { fontSize: 18, fontWeight: "900", color: theme.text },
+  iconModalSubTitle: { marginTop: 2, fontSize: 12, fontWeight: '600', color: theme.muted },
+  iconModalDoneBtn: {
+    minWidth: 56,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#111111',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconModalDoneText: { color: '#FFFFFF', fontSize: 13, fontWeight: '800' },
+  iconModalSearchWrap: { paddingHorizontal: 16, paddingTop: 14 },
+  iconModalSearchBar: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#111111',
+    marginBottom: 8,
+  },
+  iconSelectedRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  iconSelectedRowLabel: { fontSize: 12, fontWeight: '700', color: theme.muted },
+  iconSelectedPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#111111',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    gap: 6,
+  },
+  iconSelectedPillText: { color: '#FFFFFF', fontSize: 11, fontWeight: '700' },
+  iconModalList: { flex: 1, paddingHorizontal: 12, paddingTop: 4 },
   reviewRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.surface2 },
-  reviewLabel: { fontSize: 16, fontWeight: "700", color: theme.muted },
-  reviewValue: { fontSize: 15, fontWeight: "800", color: theme.card, maxWidth: "66%", textAlign: "right" },
-
-  coachOverlay: { flex: 1, justifyContent: "flex-end" },
-  coachBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.35)" },
-  coachCard: { margin: 14, padding: 14, borderRadius: theme.radius, backgroundColor: theme.surface },
-  coachTitle: { fontSize: 14, fontWeight: "900", color: theme.text },
-  coachBody: { marginTop: 8, fontSize: 12, fontWeight: "800", color: theme.muted, lineHeight: 16 },
+  reviewLabel: { fontSize: 13, fontWeight: "700", color: theme.muted },
+  reviewValue: { fontSize: 13, fontWeight: "800", color: theme.text },
+  skipRow: { flexDirection: "row", marginTop: 12, gap: 10 },
+  skipToggle: { flex: 1, height: 36, borderRadius: theme.radius, backgroundColor: theme.surface2, alignItems: "center", justifyContent: "center" },
+  skipToggleOn: { backgroundColor: theme.accent },
+  skipText: { fontSize: 12, fontWeight: "700", color: theme.text },
+  skipTextOn: { color: theme.bg },
+  inlineLink: { marginTop: 8, alignSelf: "flex-start" },
+  inlineLinkText: { fontSize: 12, fontWeight: "700", color: theme.muted, textDecorationLine: "underline" },
+  errorInline: { marginTop: 10, backgroundColor: theme.dangerBg, borderRadius: theme.radius, padding: 12 },
+  errorInlineText: { color: theme.dangerText, fontSize: 12, fontWeight: "700" },
 });
