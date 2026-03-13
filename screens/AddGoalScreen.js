@@ -4,9 +4,7 @@ import {
   View,
   Text,
   StyleSheet,
-=======
   TextInput,
->>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
   Pressable,
   LayoutAnimation,
   KeyboardAvoidingView,
@@ -217,8 +215,7 @@ function measureRef(ref, cb) {
   UIManager.measureInWindow(node, (x, y, width, height) => cb({ x, y, width, height }));
 }
 
-<<<<<<< HEAD
-function Pill({ label, active, onPress }) {
+// ...existing code...
   return (
     <Pressable onPress={onPress} style={[styles.pill, active && styles.pillActive]}>
       <Text style={[styles.pillText, active && styles.pillTextActive]}>{label}</Text>
@@ -246,8 +243,7 @@ function Button({ variant = "primary", label, onPress, disabled }) {
   );
 }
 
-<<<<<<< HEAD
-function PrimaryButton({ label, onPress, disabled }) {
+// ...existing code...
   return (
     <Pressable onPress={onPress} disabled={disabled} style={[styles.primaryBtn, disabled && { opacity: 0.55 }]}>
       <Text style={styles.primaryBtnText}>{label}</Text>
@@ -270,8 +266,7 @@ function Chip({ label, active, onPress }) {
   );
 }
 
-<<<<<<< HEAD
-function GhostButton({ label, onPress, disabled }) {
+// ...existing code...
 =======
 function Segmented({ left, right, value, onChange }) {
 >>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
@@ -293,8 +288,7 @@ function Segmented({ left, right, value, onChange }) {
   );
 }
 
-<<<<<<< HEAD
-function Dot({ state }) {
+// ...existing code...
 =======
 function ProgressDots({ total, index, done }) {
 >>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
@@ -1173,7 +1167,6 @@ const styles = StyleSheet.create({
   inlineLinkText: { fontSize: 12, fontWeight: "700", color: theme.muted, textDecorationLine: "underline" },
   errorInline: { marginTop: 10, backgroundColor: theme.dangerBg, borderRadius: theme.radius, padding: 12 },
   errorInlineText: { color: theme.dangerText, fontSize: 12, fontWeight: "700" },
-<<<<<<< HEAD
 });
 =======
 });

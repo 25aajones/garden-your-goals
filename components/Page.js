@@ -1,6 +1,5 @@
 // components/Page.js
 import React from "react";
-<<<<<<< HEAD
 import { View, ScrollView, StyleSheet } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 // components/Page.js

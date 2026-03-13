@@ -1,8 +1,5 @@
 import React, { useMemo, useState, useEffect } from "react";
-<<<<<<< HEAD
-=======
 import SwipeableGoalItem from '../components/SwipeableGoalItem';
->>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
 import { View, Text, StyleSheet, Pressable, FlatList, ActivityIndicator, Alert, Image } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import Page from "../components/Page";
@@ -146,7 +143,6 @@ function getPlantPreviewAsset(goal) {
   );
 }
 
-<<<<<<< HEAD
 function Chip({ label, active, onPress }) {
   return (
     <Pressable onPress={onPress} style={[styles.chip, active && styles.chipActive]}>
@@ -233,7 +229,6 @@ export default function GoalsScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const uid = auth.currentUser?.uid;
 
-<<<<<<< HEAD
   const streak = useMemo(() => {
     if (!goal || typeof getStreak !== "function") return 0;
     return getStreak(goal, dateKey);
@@ -412,8 +407,7 @@ export default function GoalsScreen({ navigation }) {
         return layoutByGoalId[g.id]?.pageId !== STORAGE_PAGE_ID;
       })
       .filter((g) => isWithinActiveRange(g, today))
-<<<<<<< HEAD
-      .filter((g) => !isGoalFullyCompleted(g, today));
+  .filter((g) => !isGoalFullyCompleted(g, today));
 =======
       .filter((g) => !isGoalFullyCompleted(g, today))
       .filter((g) => !g.deleted);
@@ -734,7 +728,6 @@ export default function GoalsScreen({ navigation }) {
             const scheduleText = formatSchedule(item);
             const gardenLabel = getGardenLabel(item);
 
-<<<<<<< HEAD
             return (
               <Pressable 
                 style={[

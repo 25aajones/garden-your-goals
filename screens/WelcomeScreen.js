@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import React, { useState } from "react";
 import { View, Text, StyleSheet, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -125,8 +124,7 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: 16,
-<<<<<<< HEAD
-    color: theme.accent,
+  color: theme.accent,
 =======
     color: theme.muted,
 >>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
@@ -141,8 +139,7 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     fontWeight: "800",
-<<<<<<< HEAD
-    color: theme.muted,
+  color: theme.muted,
   },
   fullCenter: { flex: 1, alignItems: "center", justifyContent: "center", gap: 18, paddingHorizontal: 24 },
   plantCircle: { alignItems: "center", justifyContent: "center", shadowOpacity: 0.12, shadowRadius: 14, shadowOffset: { width: 0, height: 10 }, elevation: 8 },

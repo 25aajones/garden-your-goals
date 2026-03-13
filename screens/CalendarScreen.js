@@ -33,24 +33,21 @@ function getMonthDays(year, month) {
 
   const arr = [];
 
-<<<<<<< HEAD
-=======
+// ...existing code...
   // prev month fillers
 >>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
   for (let i = startDay - 1; i >= 0; i--) {
     arr.push({ day: prevDays - i, faded: true });
   }
 
-<<<<<<< HEAD
-=======
+// ...existing code...
   // current
 >>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
   for (let i = 1; i <= daysInMonth; i++) {
     arr.push({ day: i, faded: false });
   }
 
-<<<<<<< HEAD
-=======
+// ...existing code...
   // next fillers
 >>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
   while (arr.length % 7 !== 0) {
@@ -68,7 +65,6 @@ export default function CalendarScreen() {
   const month = date.getMonth();
 
   const today = new Date();
-<<<<<<< HEAD
   const isCurrentMonth =
     today.getFullYear() === year &&
     today.getMonth() === month;
@@ -175,8 +171,7 @@ export default function CalendarScreen() {
 
       {/* CARD */}
       <View style={styles.card}>
-<<<<<<< HEAD
-
+// ...existing code...
         {/* HEADER */}
         <View style={styles.monthRow}>
          <Pressable
@@ -233,7 +228,6 @@ export default function CalendarScreen() {
   segmentText:{ fontWeight:"900", color:"#F9F6EE" },
   segmentTextActive:{},
 
-<<<<<<< HEAD
   card:{ backgroundColor:"#B9AD97", borderRadius:24, padding:16 },
 
   monthRow:{ flexDirection:"row", justifyContent:"space-between", alignItems:"center", marginBottom:10 },
