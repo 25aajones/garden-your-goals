@@ -2,6 +2,8 @@ import React, { useMemo, useState } from "react";
 import { View, Text, StyleSheet, Pressable, Dimensions } from "react-native";
 import Page from "../components/Page";
 import { theme } from "../theme";
+import { useGoals, fromKey, toKey } from "../components/GoalsStore";
+import { isScheduledOn, isWithinActiveRange } from "../components/GoalsStore";
 
 const DAYS = ["sun","mon","tue","wed","thu","fri","sat"];
 
@@ -49,7 +51,8 @@ function getMonthDays(year, month) {
 
 export default function CalendarScreen() {
   const [mode, setMode] = useState("month");
-  const [date, setDate] = useState(new Date());
+  const { selectedDateKey, setSelectedDateKey } = useGoals();
+  const date = fromKey(selectedDateKey);
 
   const year = date.getFullYear();
   const month = date.getMonth();
@@ -66,18 +69,48 @@ export default function CalendarScreen() {
     return [];
   }, [mode, year, month, date]);
 
+  const { goals } = useGoals();
+
+  const todaysGoals = useMemo(() => {
+    return goals
+      .filter(g => isWithinActiveRange(g, date))
+      .filter(g => isScheduledOn(g, date));
+},  [goals, selectedDateKey]);
+
   const monthLabel = date.toLocaleString("default", { month: "long" });
 
   const changeDay = (dir) => {
-    setDate(prev => {
-      const newDate = new Date(prev);
-      newDate.setDate(prev.getDate() + dir);
-      return newDate;
-    });
-  };
+    const newDate = new Date(date);
+    newDate.setDate(date.getDate() + dir);
+    setSelectedDateKey(toKey(newDate));
+};
+
+  const changeWeek = (dir) => {
+    const newDate = new Date(date);
+    newDate.setDate(date.getDate() + dir * 7);
+    setSelectedDateKey(toKey(newDate));
+};
 
   const changeMonth = (dir) => {
-    setDate(new Date(year, month + dir, 1));
+    const newDate = new Date(date);
+    newDate.setMonth(date.getMonth() + dir);
+    setSelectedDateKey(toKey(newDate));
+};
+
+  const weekLabel = () => {
+  const start = new Date(date);
+  start.setDate(date.getDate() - date.getDay());
+
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+
+  return `${start.toLocaleDateString("default", {
+    month: "short",
+    day: "numeric"
+  })} - ${end.toLocaleDateString("default", {
+    month: "short",
+    day: "numeric"
+  })}`;
   };
 
   return (
@@ -106,7 +139,13 @@ export default function CalendarScreen() {
 
         {/* HEADER */}
         <View style={styles.monthRow}>
-          <Pressable onPress={() => mode === "today" ? changeDay(-1) : changeMonth(-1)}>
+         <Pressable
+            onPress={() => {
+              if (mode === "today") changeDay(-1);
+              else if (mode === "week") changeWeek(-1);
+              else changeMonth(-1);
+          }}
+          >
             <Text style={styles.arrow}>‹</Text>
           </Pressable>
 
@@ -117,10 +156,18 @@ export default function CalendarScreen() {
                   month: "long",
                   day: "numeric"
                 })
+              : mode === "week"
+              ? weekLabel()
               : monthLabel}
           </Text>
 
-          <Pressable onPress={() => mode === "today" ? changeDay(1) : changeMonth(1)}>
+          <Pressable
+            onPress={() => {
+              if (mode === "today") changeDay(1);
+              else if (mode === "week") changeWeek(1);
+              else changeMonth(1);
+          }}
+          >
             <Text style={styles.arrow}>›</Text>
           </Pressable>
         </View>
@@ -163,33 +210,24 @@ export default function CalendarScreen() {
           </View>
         )}
 
-        {/* TODAY GOALS */}
-        {mode === "today" && (
-          <>
-            <View style={styles.divider} />
-            {["Drink Water","Daily Read","Quick Run"].map((g, i) => (
-              <View key={i} style={styles.goalRow}>
-                <View style={styles.goalIcon} />
-                <Text style={styles.goalText}>{g}</Text>
-                <Text style={styles.check}>✓</Text>
-              </View>
-            ))}
-          </>
-        )}
+        {/* GOALS FOR SELECTED DAY */}
+        <>
+          <View style={styles.divider} />
 
-        {/* MONTH/WEEK GOALS */}
-        {mode !== "today" && (
-          <>
-            <View style={styles.divider} />
-            {["Drink Water","Daily Read","Quick Run"].map((g, i) => (
-              <View key={i} style={styles.goalRow}>
-                <View style={styles.goalIcon} />
-                <Text style={styles.goalText}>{g}</Text>
-                <Text style={styles.check}>✓</Text>
-              </View>
-            ))}
-          </>
-        )}
+          {todaysGoals.map((g) => (
+            <View key={g.id} style={styles.goalRow}>
+              <View style={styles.goalIcon} />
+              <Text style={styles.goalText}>{g.name}</Text>
+              <Text style={styles.check}>✓</Text>
+            </View>
+          ))}
+
+          {todaysGoals.length === 0 && (
+            <Text style={{ textAlign: "center", opacity: 0.6, marginTop: 10 }}>
+              No goals scheduled
+            </Text>
+          )}
+        </>
 
       </View>
     </Page>
