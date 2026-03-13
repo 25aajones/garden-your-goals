@@ -1,4 +1,8 @@
 import React, { useMemo, useState, useEffect } from "react";
+<<<<<<< HEAD
+=======
+import SwipeableGoalItem from '../components/SwipeableGoalItem';
+>>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
 import { View, Text, StyleSheet, Pressable, FlatList, ActivityIndicator, Alert, Image } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import Page from "../components/Page";
@@ -142,12 +146,17 @@ function getPlantPreviewAsset(goal) {
   );
 }
 
+<<<<<<< HEAD
 function Chip({ label, active, onPress }) {
   return (
     <Pressable onPress={onPress} style={[styles.chip, active && styles.chipActive]}>
       <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
     </Pressable>
   );
+=======
+function Droplet({ filled }) {
+  return <View style={[styles.droplet, filled ? styles.dropletFilled : styles.dropletOutline]} />;
+>>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
 }
 
 function isGoalDoneForDate(goal, dateKey) {
@@ -224,10 +233,15 @@ export default function GoalsScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const uid = auth.currentUser?.uid;
 
+<<<<<<< HEAD
   const streak = useMemo(() => {
     if (!goal || typeof getStreak !== "function") return 0;
     return getStreak(goal, dateKey);
   }, [goal, dateKey, getStreak]);
+=======
+  const today = new Date();
+  const todayKey = toKey(today);
+>>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
 
   useEffect(() => {
     if (!uid) {
@@ -398,7 +412,12 @@ export default function GoalsScreen({ navigation }) {
         return layoutByGoalId[g.id]?.pageId !== STORAGE_PAGE_ID;
       })
       .filter((g) => isWithinActiveRange(g, today))
+<<<<<<< HEAD
       .filter((g) => !isGoalFullyCompleted(g, today));
+=======
+      .filter((g) => !isGoalFullyCompleted(g, today))
+      .filter((g) => !g.deleted);
+>>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
   }, [allGoals, layoutByGoalId, todayKey]);
 
   const visibleGoals = useMemo(() => {
@@ -715,6 +734,7 @@ export default function GoalsScreen({ navigation }) {
             const scheduleText = formatSchedule(item);
             const gardenLabel = getGardenLabel(item);
 
+<<<<<<< HEAD
             return (
               <Pressable 
                 style={[
@@ -774,6 +794,84 @@ export default function GoalsScreen({ navigation }) {
                   </View>
                 </Pressable>
               </Pressable>
+=======
+            // Swipe-to-delete handler
+            const handleDelete = async (goal) => {
+              try {
+                const isSharedGoal = goal?.gardenType === "shared" && !!goal?.sharedGardenId;
+                const goalRef = isSharedGoal
+                  ? doc(db, "sharedGardens", goal.sharedGardenId, "layout", goal.id)
+                  : doc(db, "users", auth.currentUser.uid, "goals", goal.id);
+                await deleteDoc(goalRef);
+                Alert.alert("Goal Deleted", `Goal '${goal.name}' has been deleted.`);
+              } catch (error) {
+                console.error("Error deleting goal:", error);
+                Alert.alert("Error", "Could not delete goal.");
+              }
+            };
+
+            return (
+              <SwipeableGoalItem item={item} onDelete={handleDelete}>
+                <Pressable 
+                  style={[
+                    styles.goalCard,
+                    isOtherGardenGoal ? styles.goalCardOtherGarden : styles.goalCardPersonalGarden,
+                    !dueToday && styles.goalCardMuted,
+                  ]}
+                  onPress={() =>
+                    navigation.navigate("Goal", {
+                      goalId: item.id,
+                      source: "goals",
+                      sharedGardenId: item?.gardenType === "shared" ? item?.sharedGardenId : undefined,
+                    })
+                  }
+                >
+                  <View style={styles.leftIcon}>
+                    <Image source={getPlantPreviewAsset(item)} style={styles.leftIconImage} resizeMode="contain" />
+                  </View>
+                  <View style={styles.textWrap}>
+                    <Text style={[styles.title, isOtherGardenGoal ? styles.titleOtherGarden : styles.titlePersonalGarden]} numberOfLines={1}>{item.name}</Text>
+                    <Text style={[styles.sub, isOtherGardenGoal ? styles.subOtherGarden : styles.subPersonalGarden]} numberOfLines={1}>
+                      {scheduleText}
+                    </Text>
+                    <Text style={[styles.gardenSub, isOtherGardenGoal ? styles.gardenSubOther : styles.gardenSubPersonal]} numberOfLines={1}>{gardenLabel}</Text>
+                  </View>
+
+                  <Pressable 
+                    style={styles.rightWrap} 
+                    onPress={() => handleToggleComplete(item, done)}
+                    hitSlop={15}
+                  >
+                    <View style={styles.rightInfo}>
+                      {showReviveHeart && <Ionicons name="heart" size={14} color="#FF6B8A" style={styles.reviveHeart} />}
+                      {item.currentStreak > 0 && (
+                        <Text style={[styles.streakText, isOtherGardenGoal && styles.streakTextOtherGarden]}>{item.currentStreak}</Text>
+                      )}
+                    </View>
+
+                    <View style={styles.dropletAnchor}>
+                      {isSharedMultiUser ? (
+                        <View style={[
+                          styles.contributorBadge,
+                          !done && currentUserContributed && styles.contributorBadgeSelf,
+                          done && styles.contributorBadgeDone,
+                        ]}>
+                          <Text style={[
+                            styles.contributorBadgeText,
+                            !done && currentUserContributed && styles.contributorBadgeTextSelf,
+                            done && styles.contributorBadgeTextDone,
+                          ]}>
+                            {contributorProgressLabel}
+                          </Text>
+                        </View>
+                      ) : (
+                        <Droplet filled={done} />
+                      )}
+                    </View>
+                  </Pressable>
+                </Pressable>
+              </SwipeableGoalItem>
+>>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
             );
           }}
           ListEmptyComponent={

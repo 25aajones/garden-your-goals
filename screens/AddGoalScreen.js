@@ -4,6 +4,9 @@ import {
   View,
   Text,
   StyleSheet,
+=======
+  TextInput,
+>>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
   Pressable,
   LayoutAnimation,
   KeyboardAvoidingView,
@@ -126,33 +129,14 @@ const DAYS = [
   { label: "Sat", day: 6 },
 ];
 
-const WHEN_SUGGEST = ["Morning", "After class", "After lunch", "Evening", "Before bed"];
-const WHERE_SUGGEST = ["Desk", "Home", "Gym", "Library", "Kitchen"];
-const CUE_SUGGEST = ["After brushing teeth", "After scripture study", "After breakfast", "After shower"];
-const REWARD_SUGGEST = ["Tea", "5-minute break", "Music", "Stretching"];
+const CATEGORIES = ["Body", "Mind", "Spirit", "Work", "Custom"];
 
-const DAY_LABELS = ["S", "M", "T", "W", "Th", "F", "Sa"];
-
-function stableStringify(obj) {
-  try {
-    return JSON.stringify(obj);
-  } catch {
-    return "";
-  }
-}
-
-function uid(prefix = "i") {
-  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
-}
-
-function endOfWeekKey() {
-  const now = new Date();
-  const d = new Date(now);
-  const day = d.getDay(); // 0..6
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() + (6 - day));
-  return toKey(d);
-}
+const clampNum = (n, min, max) => {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return min;
+  return Math.max(min, Math.min(max, v));
+};
+>>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
 
 const toISODate = (date) => {
   const year = date.getFullYear();
@@ -233,23 +217,64 @@ function measureRef(ref, cb) {
   UIManager.measureInWindow(node, (x, y, width, height) => cb({ x, y, width, height }));
 }
 
+<<<<<<< HEAD
 function Pill({ label, active, onPress }) {
   return (
     <Pressable onPress={onPress} style={[styles.pill, active && styles.pillActive]}>
       <Text style={[styles.pillText, active && styles.pillTextActive]}>{label}</Text>
+=======
+function Button({ variant = "primary", label, onPress, disabled }) {
+  const isPrimary = variant === "primary";
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: !!disabled }}
+      style={({ pressed }) => [
+        styles.btnBase,
+        isPrimary ? styles.btnPrimary : styles.btnSecondary,
+        disabled && { opacity: 0.5 },
+        pressed && !disabled && { opacity: 0.9, transform: [{ scale: 0.99 }] },
+      ]}
+    >
+      <Text style={[styles.btnTextBase, isPrimary ? styles.btnTextPrimary : styles.btnTextSecondary]}>
+        {label}
+      </Text>
+>>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
     </Pressable>
   );
 }
 
+<<<<<<< HEAD
 function PrimaryButton({ label, onPress, disabled }) {
   return (
     <Pressable onPress={onPress} disabled={disabled} style={[styles.primaryBtn, disabled && { opacity: 0.55 }]}>
       <Text style={styles.primaryBtnText}>{label}</Text>
+=======
+function Chip({ label, active, onPress }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected: !!active }}
+      style={({ pressed }) => [
+        styles.chip,
+        active && styles.chipActive,
+        pressed && { opacity: 0.92 },
+      ]}
+    >
+      <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
+>>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
     </Pressable>
   );
 }
 
+<<<<<<< HEAD
 function GhostButton({ label, onPress, disabled }) {
+=======
+function Segmented({ left, right, value, onChange }) {
+>>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
   return (
     <View style={styles.segmentWrap}>
       <Pressable
@@ -268,7 +293,11 @@ function GhostButton({ label, onPress, disabled }) {
   );
 }
 
+<<<<<<< HEAD
 function Dot({ state }) {
+=======
+function ProgressDots({ total, index, done }) {
+>>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
   return (
     <View style={styles.dotsRow} accessibilityRole="progressbar">
       {Array.from({ length: total }).map((_, i) => (
@@ -343,25 +372,16 @@ export default function AddGoalScreen({ navigation }) {
   }, [mode, days, selectedDay]);
 
   const frequencyLabel = useMemo(() => {
-    if (kind === "flex") return "By deadline";
-    if (scheduleMode === "everyday") return "Everyday";
-    if (scheduleMode === "weekdays") return "Weekdays";
-    const map = { 0: "S", 1: "M", 2: "T", 3: "W", 4: "Th", 5: "F", 6: "Sa" };
-    return [...days].sort((a, b) => a - b).map((d) => map[d]).join("");
-  }, [kind, scheduleMode, days]);
+    if (mode === "everyday") return "Every day";
+    if (mode === "weekdays") return "Weekdays";
+    return [...scheduleDays].sort((a, b) => a - b).map(mapDayShort).join(" ");
+  }, [mode, scheduleDays]);
 
-  const typeTitle = useMemo(() => {
-    const found = TYPE_CARDS.find((t) => t.key === kind);
-    return found ? found.title : "Goal";
-  }, [kind]);
-
-  const toggleCategory = (c) => {
-    setCategories((prev) => {
-      const has = prev.includes(c);
-      const next = has ? prev.filter((x) => x !== c) : [...prev, c];
-      return next.length ? next : ["Custom"];
-    });
-  };
+  const measurableForType = useMemo(() => {
+    if (type === "completion") return { target: 1, unit: "times" };
+    return { target: clampNum(target, 1, 9999), unit: unit.trim() || "units" };
+  }, [type, target, unit]);
+>>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
 
   const completionCondition = useMemo(() => {
     if (completionMode === "date" && isValidISODate(completionEndDate.trim())) {
@@ -938,10 +958,8 @@ export default function AddGoalScreen({ navigation }) {
               </View>
             </ScrollView>
           </View>
-        </View>
-
-        {/* Help overlay */}
-        <CoachMark visible={helpOpen} title={helpCopy.title} body={helpCopy.body} onClose={() => setHelpOpen(false)} />
+        </Modal>
+>>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
       </KeyboardAvoidingView>
     </Page>
   );
@@ -1155,4 +1173,8 @@ const styles = StyleSheet.create({
   inlineLinkText: { fontSize: 12, fontWeight: "700", color: theme.muted, textDecorationLine: "underline" },
   errorInline: { marginTop: 10, backgroundColor: theme.dangerBg, borderRadius: theme.radius, padding: 12 },
   errorInlineText: { color: theme.dangerText, fontSize: 12, fontWeight: "700" },
+<<<<<<< HEAD
 });
+=======
+});
+>>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)

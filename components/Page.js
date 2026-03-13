@@ -1,5 +1,10 @@
 // components/Page.js
 import React from "react";
+<<<<<<< HEAD
+import { View, ScrollView, StyleSheet } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+// components/Page.js
+import React from "react";
 import { View, ScrollView, StyleSheet } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { theme } from "../theme";
@@ -17,7 +22,7 @@ export default function Page({
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.bg }]} edges={["top", "left", "right"]}>
-      <View style={[styles.root, { backgroundColor: theme.bg, paddingHorizontal: padX }]}>
+      <View style={[styles.root, { backgroundColor: theme.bg, paddingHorizontal: padX }]}> 
         <View style={{ height: theme.topGap }} />
 
         {scroll ? (
@@ -62,3 +67,4 @@ const styles = StyleSheet.create({
 
   footerWrap: { marginTop: 12 },
 });
+}

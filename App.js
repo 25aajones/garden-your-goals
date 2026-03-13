@@ -34,7 +34,7 @@ import GardenScreen from './screens/GardenScreen'; // <-- 1. IMPORT GARDEN SCREE
 function Placeholder({ title }) {
   return (
     <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: theme.bg }}>
-      <Text style={{ fontWeight: "900", color: theme.muted2 }}>{title}</Text>
+  <Text style={{ fontWeight: "900", color: theme.muted }}>{title}</Text>
     </View>
   );
 }
@@ -212,20 +212,25 @@ export default function App() {
 
   if (initializing) return null;
 
+  // Wrap app in GestureHandlerRootView
+  const GestureHandlerRoot = require('./GestureHandlerRoot').default;
   return (
-    <SafeAreaProvider>
-      <GoalsProvider>
-        <NavigationContainer>
-          <StatusBar style="dark" />
-          <RootStack.Navigator screenOptions={{ headerShown: false }}>
-            {user && hasUsername ? (
-              <RootStack.Screen name="Tabs" component={MainTabs} />
-            ) : (
-              <RootStack.Screen name="Login" component={Login} />
-            )}
-          </RootStack.Navigator>
-        </NavigationContainer>
-      </GoalsProvider>
-    </SafeAreaProvider>
+    <GestureHandlerRoot>
+      <SafeAreaProvider>
+        <GoalsProvider>
+          <NavigationContainer>
+            <StatusBar style="dark" />
+            <RootStack.Navigator screenOptions={{ headerShown: false }}>
+              {user && hasUsername ? (
+                <RootStack.Screen name="Tabs" component={MainTabs} />
+              ) : (
+                <RootStack.Screen name="Login" component={Login} />
+              )}
+            </RootStack.Navigator>
+          </NavigationContainer>
+        </GoalsProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRoot>
+  );
   );
 }

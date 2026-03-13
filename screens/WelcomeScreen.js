@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import React, { useState } from "react";
 import { View, Text, StyleSheet, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -16,7 +17,7 @@ function PlantMark({ big }) {
   const size = big ? 160 : 128;
   const iconSize = big ? 64 : 52;
   return (
-    <View style={[styles.plantCircle, { width: size, height: size, borderRadius: size / 2, backgroundColor: big ? BG : "#EDE8DC" }]}>
+    <View style={[styles.plantCircle, { width: size, height: size, borderRadius: size / 2, backgroundColor: big ? BG : "#EDE8DC" }]}> 
       <View style={{ alignItems: "center" }}>
         <Ionicons name="leaf" size={iconSize} color={ACCENT} />
         <View style={[styles.soil, { width: big ? 64 : 48, height: big ? 24 : 20 }]} />
@@ -40,7 +41,7 @@ export default function WelcomeScreen({ navigation }) {
   }
 
   return (
-    <View style={[styles.full, { backgroundColor: BG, paddingHorizontal: 24, paddingVertical: 36 }]}>
+    <View style={[styles.full, { backgroundColor: BG, paddingHorizontal: 24, paddingVertical: 36 }]}> 
       <View style={{ flex: 1 }} />
       <View style={{ alignItems: "center" }}>
         <PlantMark />
@@ -81,6 +82,30 @@ export default function WelcomeScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
+  full: { flex: 1 },
+  gradWrap: { backgroundColor: BG1_TOP },
+  fullCenter: { flex: 1, alignItems: "center", justifyContent: "center", gap: 18, paddingHorizontal: 24 },
+  plantCircle: { alignItems: "center", justifyContent: "center", shadowOpacity: 0.12, shadowRadius: 14, shadowOffset: { width: 0, height: 10 }, elevation: 8 },
+  soil: { backgroundColor: SOIL, borderBottomLeftRadius: 999, borderBottomRightRadius: 999, marginTop: -6 },
+  brandOverline: { fontSize: 12, fontWeight: "800", color: ACCENT, letterSpacing: 2, textTransform: "uppercase" },
+
+  welcomeTitle: { marginTop: 10, fontSize: 26, fontWeight: "900", color: INK, textAlign: "center", lineHeight: 34 },
+  welcomeBody: { marginTop: 10, fontSize: 14, fontWeight: "600", color: MUTED, textAlign: "center", lineHeight: 20, maxWidth: 270 },
+
+  primaryBtn: { borderRadius: 14, paddingVertical: 14, alignItems: "center", justifyContent: "center", shadowOpacity: 0.08, shadowRadius: 10, shadowOffset: { width: 0, height: 6 }, elevation: 4 },
+  primaryBtnText: { fontSize: 14, fontWeight: "900", color: "#fff" },
+
+  guestLink: { fontSize: 12, fontWeight: "700", color: MUTED, textDecorationLine: "underline" },
+});
+          <Text style={styles.buttonText}>Get Started</Text>
+        </Pressable>
+      </View>
+    </SafeAreaView>
+>>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
+  );
+}
+
+const styles = StyleSheet.create({
   safe: {
     flex: 1,
     backgroundColor: theme.bg,
@@ -100,7 +125,11 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: 16,
+<<<<<<< HEAD
     color: theme.accent,
+=======
+    color: theme.muted,
+>>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
     textAlign: "center",
     marginBottom: 32,
   },
@@ -112,6 +141,7 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     fontWeight: "800",
+<<<<<<< HEAD
     color: theme.muted,
   },
   fullCenter: { flex: 1, alignItems: "center", justifyContent: "center", gap: 18, paddingHorizontal: 24 },
@@ -126,4 +156,8 @@ const styles = StyleSheet.create({
   primaryBtnText: { fontSize: 14, fontWeight: "900", color: "#fff" },
 
   guestLink: { fontSize: 12, fontWeight: "700", color: MUTED, textDecorationLine: "underline" },
+=======
+    color: theme.text,
+  },
+>>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
 });

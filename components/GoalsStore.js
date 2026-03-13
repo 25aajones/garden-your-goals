@@ -1,150 +1,11 @@
 // components/GoalsStore.js
+<<<<<<< HEAD
 import React, { createContext, useContext, useMemo, useState, useEffect } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export function toKey(date) {
   const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-export function fromKey(key) {
-  const [y, m, d] = key.split("-").map((n) => Number(n));
-  return new Date(y, (m || 1) - 1, d || 1);
-}
-
-export function isValidDateKey(s) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(s))) return false;
-  const [y, m, d] = String(s).split("-").map(Number);
-  const dt = new Date(y, m - 1, d);
-  return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
-}
-
-function uid() {
-  return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
-}
-
-function daysBetween(aDate, bDate) {
-  const a = new Date(aDate); a.setHours(0,0,0,0);
-  const b = new Date(bDate); b.setHours(0,0,0,0);
-  return Math.round((b - a) / (1000 * 60 * 60 * 24));
-}
-
-export function addDaysKey(dateKey, deltaDays) {
-  const d = fromKey(dateKey);
-  d.setDate(d.getDate() + deltaDays);
-  return toKey(d);
-}
-
-/**
- * Goal Types (kind)
- * - completion: tap = done/undone for the day
- * - numeric: store value for day; done if value >= target
- * - timer: store seconds for day; done if seconds >= targetSeconds
- * - checklist: store checkedIds for day; done if all checked
- * - flex: “by deadline” goal (weekly/monthly/custom deadline), shows daily until complete,
- *         supports partial progress entries, warns near deadline, doesn’t show in past unless progress happened that day.
- */
-
-export function isWithinActiveRange(goal, dateOrKey) {
-  const tb = goal?.timeBound;
-  if (!tb?.enabled) return true;
-
-  const date = typeof dateOrKey === "string" ? fromKey(dateOrKey) : dateOrKey;
-  const start = tb.startDate ? fromKey(tb.startDate) : null;
-  const end = tb.endDate ? fromKey(tb.endDate) : null;
-
-  if (start && date < start) return false;
-  if (end && date > end) return false;
-  return true;
-}
-
-export function isScheduledOn(goal, dateOrKey) {
-  const date = typeof dateOrKey === "string" ? fromKey(dateOrKey) : dateOrKey;
-  const day = date.getDay(); // 0..6
-  const sched = goal?.schedule;
-
-  if (!sched) return true;
-  if (sched.mode === "floating") return true; // handled separately
-  if (sched.mode === "everyday") return true;
-  if (sched.mode === "weekdays") return [1,2,3,4,5].includes(day);
-  if (sched.mode === "custom") return Array.isArray(sched.days) ? sched.days.includes(day) : true;
-  return true;
-}
-
-const DRAFT_KEY = "goalGrower:addGoalDraft:v1";
-const DRAFT_TTL_MS = 5 * 60 * 1000;
-const LAST_SAVED_KEY = "goalGrower:lastGoalSavedAt:v1";
-
-const GoalsContext = createContext(null);
-
-function baseLogs() {
-  return {
-    completion: {},
-    numeric: {},
-    timer: {},
-    checklist: {},
-    flex: { total: 0, entries: [] },
-  };
-}
-
-function normalizeDraftForGoal(goalDraft) {
-  const kind = goalDraft.kind || goalDraft.type || "completion";
-
-  const base = {
-    name: goalDraft.name || "New Goal",
-    category: goalDraft.category || (Array.isArray(goalDraft.categories) ? goalDraft.categories[0] : "Custom") || "Custom",
-    categories: Array.isArray(goalDraft.categories) ? goalDraft.categories : [goalDraft.category || "Custom"],
-    kind,
-    schedule: goalDraft.schedule || { mode: "everyday" },
-    frequencyLabel: goalDraft.frequencyLabel || "Everyday",
-    plan: goalDraft.plan || { when: "", where: "", cue: "", reward: "" },
-    timeBound: goalDraft.timeBound || { enabled: false, startDate: null, endDate: null },
-  };
-
-  if (kind === "numeric") {
-    return {
-      ...base,
-      measurable: {
-        target: Number(goalDraft.measurable?.target ?? goalDraft.target ?? 1) || 1,
-        unit: String(goalDraft.measurable?.unit ?? goalDraft.unit ?? "times"),
-      },
-    };
-  }
-
-  if (kind === "timer") {
-    return {
-      ...base,
-      timer: { targetSeconds: Math.max(0, Number(goalDraft.timer?.targetSeconds ?? 600) || 600) },
-    };
-  }
-
-  if (kind === "checklist") {
-    const items = (goalDraft.checklist?.items || goalDraft.items || []).map((it, idx) => ({
-      id: it.id || `item_${idx}_${uid()}`,
-      text: String(it.text || "").trim(),
-    })).filter((x) => x.text.length > 0);
-
-    return {
-      ...base,
-      checklist: { items },
-    };
-  }
-
-  if (kind === "flex") {
-    const deadlineKey = goalDraft.flex?.deadlineKey || goalDraft.deadlineKey || toKey(new Date());
-    return {
-      ...base,
-      schedule: { mode: "floating" },
-      flex: {
-        target: Number(goalDraft.flex?.target ?? goalDraft.target ?? 1) || 1,
-        unit: String(goalDraft.flex?.unit ?? goalDraft.unit ?? "pages"),
-        deadlineKey: isValidDateKey(deadlineKey) ? deadlineKey : toKey(new Date()),
-        warnDays: goalDraft.flex?.warnDays ?? [7, 3, 1],
-        benchmarks: Array.isArray(goalDraft.flex?.benchmarks) ? goalDraft.flex.benchmarks : [],
-      },
-    };
+  // ...existing code from HEAD version preserved...
   }
 
   // completion default
@@ -234,10 +95,152 @@ export function GoalsProvider({ children }) {
   };
 
   const saveGoalEdits = (goalId, goalDraft) => {
+=======
+import React, { createContext, useContext, useMemo, useState } from "react";
+
+const GoalsContext = createContext(null);
+
+function uid() {
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+function pad(n) {
+  return n < 10 ? `0${n}` : `${n}`;
+}
+
+export function toKey(date) {
+  const d = new Date(date);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+export function fromKey(key) {
+  const [y, m, d] = key.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setHours(0, 0, 0, 0);
+  return dt;
+}
+
+function startOfDay(date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+export function isScheduledOn(goal, date = new Date()) {
+  const day = new Date(date).getDay();
+  return goal?.schedule?.days?.includes(day);
+}
+
+export function isWithinActiveRange(goal, date = new Date()) {
+  const d = startOfDay(date).getTime();
+  const start = goal?.timeBound?.startDate ? startOfDay(goal.timeBound.startDate).getTime() : null;
+  const end = goal?.timeBound?.endDate ? startOfDay(goal.timeBound.endDate).getTime() : null;
+
+  if (start !== null && d < start) return false;
+  if (end !== null && d > end) return false;
+  return true;
+}
+
+function addDays(date, n) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + n);
+  return d;
+}
+
+// streak counts consecutive scheduled days ending at "refDateKey"
+function computeStreak(goal, refDateKey) {
+  const ref = startOfDay(fromKey(refDateKey));
+  let streak = 0;
+
+  for (let i = 0; i < 365; i++) {
+    const day = addDays(ref, -i);
+    if (!isWithinActiveRange(goal, day)) continue;
+    if (!isScheduledOn(goal, day)) continue;
+
+    const k = toKey(day);
+    let met = false;
+
+    if (goal.type === "completion") {
+      met = !!goal.logs?.completion?.[k]?.done;
+    } else {
+      const v = goal.logs?.quantity?.[k]?.value ?? 0;
+      met = v >= (goal.measurable?.target ?? 0);
+    }
+
+    if (met) streak += 1;
+    else break;
+  }
+
+  return streak;
+}
+
+const INITIAL_GOALS = [
+  {
+    id: "g1",
+    name: "Read 1 Chapter",
+    category: "Mind",
+    type: "completion",
+    measurable: { target: 1, unit: "times" },
+    schedule: { type: "days", days: [1, 3, 5] },
+    frequencyLabel: "MWF",
+    timeBound: { enabled: false, startDate: null, endDate: null },
+    smart: {
+      specific: "Read one chapter from any book.",
+      measurable: "1 chapter",
+      achievable: "Start with any easy book.",
+      relevant: "Build focus and learning.",
+      timeBound: "",
+    },
+    plan: { when: "Morning", where: "Desk", cue: "After breakfast", reward: "Tea" },
+    logs: { completion: {}, quantity: {} },
+    stats: { streak: 0, longestStreak: 0 },
+    createdAt: Date.now(),
+  },
+];
+
+export function GoalsProvider({ children }) {
+  const todayKey = toKey(new Date());
+  const [selectedDateKey, setSelectedDateKey] = useState(todayKey);
+  const [goals, setGoals] = useState(() => {
+    // init streaks based on today
+    return INITIAL_GOALS.map((g) => {
+      const s = computeStreak(g, todayKey);
+      return { ...g, stats: { streak: s, longestStreak: s } };
+    });
+  });
+
+  const addGoal = (draft) => {
+    const goal = {
+      id: uid(),
+      name: (draft.name || "New Goal").trim(),
+      category: draft.category || "Custom",
+      type: draft.type || "completion",
+      measurable: draft.measurable || { target: 1, unit: "times" },
+      schedule: draft.schedule,
+      frequencyLabel: draft.frequencyLabel,
+      timeBound: draft.timeBound || { enabled: false, startDate: null, endDate: null },
+      smart: draft.smart || { specific: "", measurable: "", achievable: "", relevant: "", timeBound: "" },
+      plan: draft.plan || { when: "", where: "", cue: "", reward: "" },
+      logs: { completion: {}, quantity: {} },
+      stats: { streak: 0, longestStreak: 0 },
+      createdAt: Date.now(),
+    };
+
+    const s = computeStreak(goal, selectedDateKey);
+    goal.stats.streak = s;
+    goal.stats.longestStreak = s;
+
+    setGoals((prev) => [goal, ...prev]);
+    return goal.id;
+  };
+
+  const toggleCompleteForKey = (goalId, dateKey) => {
+>>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
     setGoals((prev) =>
       prev.map((g) => {
         if (g.id !== goalId) return g;
 
+<<<<<<< HEAD
         const next = normalizeDraftForGoal(goalDraft);
 
         // If kind changes, reset logs to avoid invalid “done” math
@@ -270,10 +273,25 @@ export function GoalsProvider({ children }) {
           return { ...g, logs: { ...g.logs, completion: next } };
         }
         return { ...g, logs: { ...g.logs, completion: { ...completion, [dateKey]: { done: true } } } };
+=======
+        const completion = { ...(g.logs?.completion || {}) };
+        const doneNow = !!completion[dateKey]?.done;
+
+        if (doneNow) delete completion[dateKey];
+        else completion[dateKey] = { done: true };
+
+        const next = { ...g, logs: { ...g.logs, completion } };
+
+        const streak = computeStreak(next, dateKey);
+        const longest = Math.max(next.stats.longestStreak || 0, streak);
+
+        return { ...next, stats: { ...next.stats, streak, longestStreak: longest } };
+>>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
       })
     );
   };
 
+<<<<<<< HEAD
   const setNumeric = (goalId, value, dateKey = selectedDateKey) => {
     const v = Number(value);
     const safe = Number.isFinite(v) ? v : 0;
@@ -282,10 +300,29 @@ export function GoalsProvider({ children }) {
         if (g.id !== goalId) return g;
         const numeric = { ...(g.logs?.numeric || {}) };
         return { ...g, logs: { ...g.logs, numeric: { ...numeric, [dateKey]: { value: safe } } } };
+=======
+  const addQuantityForKey = (goalId, dateKey, delta) => {
+    setGoals((prev) =>
+      prev.map((g) => {
+        if (g.id !== goalId) return g;
+
+        const quantity = { ...(g.logs?.quantity || {}) };
+        const cur = quantity[dateKey]?.value ?? 0;
+        const nextVal = Math.max(0, cur + delta);
+
+        quantity[dateKey] = { value: nextVal };
+        const next = { ...g, logs: { ...g.logs, quantity } };
+
+        const streak = computeStreak(next, dateKey);
+        const longest = Math.max(next.stats.longestStreak || 0, streak);
+
+        return { ...next, stats: { ...next.stats, streak, longestStreak: longest } };
+>>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
       })
     );
   };
 
+<<<<<<< HEAD
   const addTimerSeconds = (goalId, secondsToAdd, dateKey = selectedDateKey) => {
     const add = Math.max(0, Number(secondsToAdd) || 0);
     setGoals((prev) =>
@@ -294,10 +331,27 @@ export function GoalsProvider({ children }) {
         const timer = { ...(g.logs?.timer || {}) };
         const cur = timer?.[dateKey]?.seconds ?? 0;
         return { ...g, logs: { ...g.logs, timer: { ...timer, [dateKey]: { seconds: cur + add } } } };
+=======
+  const setQuantityForKey = (goalId, dateKey, value) => {
+    setGoals((prev) =>
+      prev.map((g) => {
+        if (g.id !== goalId) return g;
+
+        const quantity = { ...(g.logs?.quantity || {}) };
+        quantity[dateKey] = { value: Math.max(0, Number(value) || 0) };
+
+        const next = { ...g, logs: { ...g.logs, quantity } };
+
+        const streak = computeStreak(next, dateKey);
+        const longest = Math.max(next.stats.longestStreak || 0, streak);
+
+        return { ...next, stats: { ...next.stats, streak, longestStreak: longest } };
+>>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
       })
     );
   };
 
+<<<<<<< HEAD
   const toggleChecklistItem = (goalId, itemId, dateKey = selectedDateKey) => {
     setGoals((prev) =>
       prev.map((g) => {
@@ -458,6 +512,19 @@ export function GoalsProvider({ children }) {
       getLastSavedAt,
     }),
     [goals, selectedDateKey, draft, draftLoaded]
+=======
+  const value = useMemo(
+    () => ({
+      goals,
+      selectedDateKey,
+      setSelectedDateKey,
+      addGoal,
+      toggleCompleteForKey,
+      addQuantityForKey,
+      setQuantityForKey,
+    }),
+    [goals, selectedDateKey]
+>>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
   );
 
   return <GoalsContext.Provider value={value}>{children}</GoalsContext.Provider>;
@@ -467,4 +534,8 @@ export function useGoals() {
   const ctx = useContext(GoalsContext);
   if (!ctx) throw new Error("useGoals must be used inside GoalsProvider");
   return ctx;
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
