@@ -35,21 +35,18 @@ function getMonthDays(year, month) {
 
 // ...existing code...
   // prev month fillers
->>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
   for (let i = startDay - 1; i >= 0; i--) {
     arr.push({ day: prevDays - i, faded: true });
   }
 
 // ...existing code...
   // current
->>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
   for (let i = 1; i <= daysInMonth; i++) {
     arr.push({ day: i, faded: false });
   }
 
 // ...existing code...
   // next fillers
->>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
   while (arr.length % 7 !== 0) {
     arr.push({ day: arr.length, faded: true });
   }
@@ -150,7 +147,6 @@ export default function CalendarScreen() {
 
   return (
     <Page>
->>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
       {/* TOP SEGMENT */}
       <View style={styles.segmentRow}>
         {["today","week","month"].map(m => {
@@ -200,12 +196,66 @@ export default function CalendarScreen() {
             onPress={() => {
               if (mode === "today") changeDay(1);
               else if (mode === "week") changeWeek(1);
-                >
-                  {d.day}
-                </Text>
+              else changeMonth(1);
+          }}
+          >
+            <Text style={styles.arrow}>›</Text>
+          </Pressable>
+        </View>
+
+        {/* WEEK DAYS */}
+        {mode !== "today" && (
+          <View style={styles.weekRow}>
+            {DAYS.map((d,i) => (
+              <View key={d} style={[styles.weekPill,(i+1)%7===0 && { marginRight:0 }]}>
+                <Text style={styles.weekText}>{d}</Text>
               </View>
             ))}
           </View>
+        )}
+
+        {/* GRID */}
+        {mode !== "today" && (
+          <View style={styles.grid}>
+            {days.map((d, i) => {
+              const dayDate = new Date(
+                d.year ?? date.getFullYear(),
+                d.month ?? date.getMonth(),
+                d.day
+              );
+
+              const isSelected = toKey(dayDate) === selectedDateKey;
+
+              const isToday =
+                dayDate.getFullYear() === today.getFullYear() &&
+                dayDate.getMonth() === today.getMonth() &&
+                dayDate.getDate() === today.getDate();
+
+              return (
+                <Pressable
+                  key={i}
+                  onPress={() => setSelectedDateKey(toKey(dayDate))}
+                  style={[
+                  styles.dayBox,
+                    (i + 1) % 7 === 0 && { marginRight: 0 },
+                    d.faded && styles.dayFaded,
+                    isSelected && styles.todayBox
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.dayText,
+                      d.faded && { opacity: 0.4 },
+                      isSelected && styles.todayText,
+                      !d.faded && isToday && !isSelected && styles.todayBox
+                    ]}
+                  >
+                    {d.day}
+                  </Text>
+                </Pressable>
+              );
+            })}
+         </View>
         )}
 
         {/* GOALS FOR SELECTED DAY */}
@@ -319,7 +369,6 @@ weekPill:{
   todayText: {
     color: "#fff"
   },
->>>>>>> 753f5d4 (Fix swipe-to-delete, remove lock files, update delete logic, and UI improvements)
 
   divider:{ height:1, backgroundColor:"#ddd", marginVertical:16 },
 
