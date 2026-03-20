@@ -12,7 +12,6 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
-  const [guest, setGuest] = useState(false);
   const navigation = useNavigation();
 
   const handleLogin = () => {
@@ -25,10 +24,6 @@ export default function Login() {
   };
 
   useEffect(() => {
-    if (guest) {
-      setView('home');
-      return;
-    }
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         console.log("LOG: Auth detected user:", user.uid);
@@ -39,7 +34,7 @@ export default function Login() {
       }
     });
     return unsubscribe;
-  }, [guest]);
+  }, []);
 
   const checkProfile = async (uid) => {
     setView('loading');
@@ -120,9 +115,6 @@ export default function Login() {
         </Pressable>
         <Pressable style={[styles.button, styles.buttonSecondary]} onPress={() => createUserWithEmailAndPassword(auth, email, password)}>
           <Text style={[styles.buttonText, styles.buttonTextSecondary]}>Register</Text>
-        </Pressable>
-        <Pressable style={[styles.button, styles.buttonSecondary]} onPress={() => setGuest(true)}>
-          <Text style={[styles.buttonText, styles.buttonTextSecondary]}>Continue as Guest</Text>
         </Pressable>
       </View>
     );
